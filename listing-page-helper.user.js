@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Listing page helper
 // @namespace    http://tampermonkey.net/
-// @version      8.3
+// @version      8.4
 // @description  Force highlight specific listings, find links, and survive aggressive filters across Immotop and Athome
 // @match        https://pro.immotop.lu/*
 // @match        https://www.athome.lu/pro/v2/listings*
@@ -27,9 +27,18 @@
     const isImmotop = window.location.hostname.includes('immotop.lu');
     const isAthome = window.location.hostname.includes('athome.lu');
 
-    // Parse and synchronize State (Supports SPA navigation)
+    // Parse and synchronize State
     function syncState() {
-        const queryString = window.location.search.replace('?', '');
+        // Grab current search OR the one saved by the loader before Athome stripped it
+        let searchStr = window.location.search;
+        const savedSearch = sessionStorage.getItem('immo_helper_saved_search');
+        
+        if (savedSearch) {
+            searchStr = savedSearch;
+            sessionStorage.removeItem('immo_helper_saved_search'); // Clear it after use
+        }
+
+        const queryString = searchStr.replace('?', '');
         const queryParams = queryString.split('&');
 
         const newIds = queryParams.filter(param => /^\d{6,8}$/.test(param));
@@ -68,7 +77,6 @@
 
     // --- Modern Badge Helpers ---
     function addOrUpdateBadge(container, text, bgColor) {
-        // On Athome, pin the badge to the first table cell to avoid grid breakage
         const targetEl = isAthome ? (container.querySelector('td') || container) : container;
         if (isAthome) targetEl.style.position = 'relative';
 
@@ -204,12 +212,10 @@
     function enforceHighlights() {
         if (targetIds.length === 0 && !downgradeId && !findId) return;
 
-        // FIX: Ensure containers is reliably populated as an Array from a NodeList
         let containers = [];
         if (isImmotop) {
             containers = Array.from(document.querySelectorAll('.search-agency-item-container'));
         } else if (isAthome) {
-            // Broadened selector to catch Athome rows regardless of exact hover states
             containers = Array.from(document.querySelectorAll('tbody tr.bg-white'));
         }
 
@@ -223,7 +229,6 @@
             let imgUrl = null;
             let nativeBadge = null;
 
-            // --- IMMOTOP LOGIC ---
             if (isImmotop) {
                 const link = container.querySelector('a[href*="/annonces/"]');
                 if (link) {
@@ -242,8 +247,6 @@
                 }
                 nativeBadge = container.querySelector('.ad-badge.first');
             } 
-            
-            // --- ATHOME LOGIC ---
             else if (isAthome) {
                 const refSpans = Array.from(container.querySelectorAll('span.text-xs.text-raven'));
                 let refVal = null;
@@ -266,7 +269,6 @@
                 nativeBadge = null; 
             }
 
-            // Identify general highlights / downgrades
             if (!matchType && adId) {
                 if (targetIds.includes(adId)) {
                     matchType = 'highlight';
@@ -275,7 +277,6 @@
                 }
             }
 
-            // Determine state
             let newState = 'none';
             if (matchType === 'find') {
                 newState = 'find';
@@ -285,7 +286,6 @@
                 newState = !nativeBadge ? 'downgrade_done' : 'downgrade_action';
             }
 
-            // ONLY apply DOM updates if the state has changed
             if (container.dataset.immoHelperState !== newState) {
                 container.dataset.immoHelperState = newState;
 
@@ -333,7 +333,6 @@
             }
         });
 
-        // Generate popup after scanning if a matching target was found
         if (triggerPopupUrl) {
             createPopup(triggerPopupUrl, triggerPopupImg);
         }
