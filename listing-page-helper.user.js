@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         Listing page helper
 // @namespace    http://tampermonkey.net/
-// @version      8.5
-// @description  Force highlight specific listings, find links, and survive aggressive filters across Immotop and Athome
+// @version      8.6
+// @description  Force highlight specific listings, find links, and survive aggressive filters across Immotop, Athome, and Wortimmo
 // @match        https://pro.immotop.lu/*
 // @match        https://www.athome.lu/pro/v2/listings*
+// @match        https://www.wortimmo.lu/fr/annonces*
 // @updateURL    https://raw.githubusercontent.com/nexvia-connect/listing-page-helper/main/listing-page-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/nexvia-connect/listing-page-helper/main/listing-page-helper.user.js
 // @grant        none
@@ -26,16 +27,16 @@
 
     const isImmotop = window.location.hostname.includes('immotop.lu');
     const isAthome = window.location.hostname.includes('athome.lu');
+    const isWortimmo = window.location.hostname.includes('wortimmo.lu');
 
     // Parse and synchronize State (Supports SPA navigation)
     function syncState() {
-        // Grab current search OR the one saved by the loader at document-start
         let searchStr = window.location.search;
         const savedSearch = sessionStorage.getItem('immo_helper_saved_search');
         
         if (savedSearch) {
             searchStr = savedSearch;
-            sessionStorage.removeItem('immo_helper_saved_search'); // Clear it after consuming
+            sessionStorage.removeItem('immo_helper_saved_search'); 
         }
 
         const queryString = searchStr.replace('?', '');
@@ -78,7 +79,7 @@
     // --- Modern Badge Helpers ---
     function addOrUpdateBadge(container, text, bgColor) {
         const targetEl = isAthome ? (container.querySelector('td') || container) : container;
-        if (isAthome) targetEl.style.position = 'relative';
+        if (isAthome || isWortimmo) targetEl.style.position = 'relative';
 
         let badge = targetEl.querySelector('.immo-status-badge');
         if (!badge) {
@@ -217,6 +218,8 @@
             containers = Array.from(document.querySelectorAll('.search-agency-item-container'));
         } else if (isAthome) {
             containers = Array.from(document.querySelectorAll('tbody tr.bg-white'));
+        } else if (isWortimmo) {
+            containers = Array.from(document.querySelectorAll('div[itemprop="itemListElement"]'));
         }
 
         let triggerPopupUrl = null;
@@ -229,6 +232,7 @@
             let imgUrl = null;
             let nativeBadge = null;
 
+            // --- IMMOTOP LOGIC ---
             if (isImmotop) {
                 const link = container.querySelector('a[href*="/annonces/"]');
                 if (link) {
@@ -247,6 +251,8 @@
                 }
                 nativeBadge = container.querySelector('.ad-badge.first');
             } 
+            
+            // --- ATHOME LOGIC ---
             else if (isAthome) {
                 const refSpans = Array.from(container.querySelectorAll('span.text-xs.text-raven'));
                 let refVal = null;
@@ -269,6 +275,37 @@
                 nativeBadge = null; 
             }
 
+            // --- WORTIMMO LOGIC ---
+            else if (isWortimmo) {
+                // Internal ID mapping
+                if (container.id && container.id.startsWith('obj_')) {
+                    adId = container.id.replace('obj_', '');
+                }
+
+                // Check external references for 'find' trigger
+                const infoDivs = Array.from(container.querySelectorAll('.col-sm-5.col-xs-5'));
+                for (let div of infoDivs) {
+                    const text = div.textContent.trim();
+                    if (findId && text.includes(`_${findId}`)) {
+                        matchType = 'find';
+                        
+                        // Extract absolute URL natively via link element
+                        const linkEl = container.querySelector('h2.title a');
+                        if (linkEl) copyUrl = linkEl.href; 
+                        
+                        // Extract image URL from background CSS
+                        const imgSpan = container.querySelector('.imgs');
+                        if (imgSpan && imgSpan.style.backgroundImage) {
+                            // Slice out `url("...")` cleanly
+                            imgUrl = imgSpan.style.backgroundImage.slice(4, -1).replace(/["']/g, "");
+                        }
+                        break;
+                    }
+                }
+                nativeBadge = null;
+            }
+
+            // Identify general highlights / downgrades
             if (!matchType && adId) {
                 if (targetIds.includes(adId)) {
                     matchType = 'highlight';
@@ -277,6 +314,7 @@
                 }
             }
 
+            // Determine state
             let newState = 'none';
             if (matchType === 'find') {
                 newState = 'find';
@@ -286,11 +324,13 @@
                 newState = !nativeBadge ? 'downgrade_done' : 'downgrade_action';
             }
 
+            // ONLY apply DOM updates if the state has changed
             if (container.dataset.immoHelperState !== newState) {
                 container.dataset.immoHelperState = newState;
 
                 const applyStyles = (borderColor, isGlow) => {
-                    if (isAthome) {
+                    // Wortimmo and Athome use Bootstrap/Grid rows, standard border breaks layout
+                    if (isAthome || isWortimmo) {
                         container.style.cssText = `position: relative; outline: 4px solid ${borderColor} !important; outline-offset: -4px; z-index: 10; ${isGlow ? `box-shadow: inset 0 0 20px ${borderColor} !important;` : ''}`;
                     } else {
                         container.style.cssText = `position: relative; border: 4px solid ${borderColor} !important; box-sizing: border-box; ${isGlow ? `box-shadow: 0 0 25px 4px ${borderColor} !important; border-width: 8px !important;` : ''}`;
@@ -349,7 +389,6 @@
             mutTimeout = setTimeout(enforceHighlights, 150);
         });
         
-        // Failsafe: Ensure document.body exists before observing
         if (document.body) {
             observer.observe(document.body, { childList: true, subtree: true });
         } else {
@@ -371,7 +410,6 @@
         }, 500);
     }
 
-    // Wait for the DOM to be ready since the loader executes instantly
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initApp);
     } else {
