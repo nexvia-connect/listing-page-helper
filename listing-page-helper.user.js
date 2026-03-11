@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Listing page helper
 // @namespace    http://tampermonkey.net/
-// @version      8.4
+// @version      8.5
 // @description  Force highlight specific listings, find links, and survive aggressive filters across Immotop and Athome
 // @match        https://pro.immotop.lu/*
 // @match        https://www.athome.lu/pro/v2/listings*
@@ -27,15 +27,15 @@
     const isImmotop = window.location.hostname.includes('immotop.lu');
     const isAthome = window.location.hostname.includes('athome.lu');
 
-    // Parse and synchronize State
+    // Parse and synchronize State (Supports SPA navigation)
     function syncState() {
-        // Grab current search OR the one saved by the loader before Athome stripped it
+        // Grab current search OR the one saved by the loader at document-start
         let searchStr = window.location.search;
         const savedSearch = sessionStorage.getItem('immo_helper_saved_search');
         
         if (savedSearch) {
             searchStr = savedSearch;
-            sessionStorage.removeItem('immo_helper_saved_search'); // Clear it after use
+            sessionStorage.removeItem('immo_helper_saved_search'); // Clear it after consuming
         }
 
         const queryString = searchStr.replace('?', '');
@@ -338,24 +338,44 @@
         }
     }
 
-    // --- INITIALIZATION ---
-    syncState();
-    enforceHighlights();
+    // --- INITIALIZATION WRAPPER ---
+    function initApp() {
+        syncState();
+        enforceHighlights();
 
-    let mutTimeout;
-    const observer = new MutationObserver(() => {
-        clearTimeout(mutTimeout);
-        mutTimeout = setTimeout(enforceHighlights, 150);
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    let lastUrl = location.href;
-    setInterval(() => {
-        if (location.href !== lastUrl) {
-            lastUrl = location.href;
-            syncState();
-            enforceHighlights();
+        let mutTimeout;
+        const observer = new MutationObserver(() => {
+            clearTimeout(mutTimeout);
+            mutTimeout = setTimeout(enforceHighlights, 150);
+        });
+        
+        // Failsafe: Ensure document.body exists before observing
+        if (document.body) {
+            observer.observe(document.body, { childList: true, subtree: true });
+        } else {
+            const waitBody = setInterval(() => {
+                if (document.body) {
+                    observer.observe(document.body, { childList: true, subtree: true });
+                    clearInterval(waitBody);
+                }
+            }, 50);
         }
-    }, 500);
+
+        let lastUrl = location.href;
+        setInterval(() => {
+            if (location.href !== lastUrl) {
+                lastUrl = location.href;
+                syncState();
+                enforceHighlights();
+            }
+        }, 500);
+    }
+
+    // Wait for the DOM to be ready since the loader executes instantly
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initApp);
+    } else {
+        initApp();
+    }
 
 })();
