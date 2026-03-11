@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Listing page helper
 // @namespace    http://tampermonkey.net/
-// @version      8.2
+// @version      8.3
 // @description  Force highlight specific listings, find links, and survive aggressive filters across Immotop and Athome
 // @match        https://pro.immotop.lu/*
 // @match        https://www.athome.lu/pro/v2/listings*
@@ -135,7 +135,7 @@
             <div style="padding: 20px;">
                 ${imageHtml}
                 <div style="display: flex; gap: 8px; align-items: center; justify-content: center; box-sizing: border-box;">
-                    <input type="text" id="immo-popup-input" value="${url}" readonly style="flex-grow: 1; padding: 10px 12px; border: 1px solid #333; background: #000; color: #333; border-radius: 6px; font-size: 13px; outline: none; box-sizing: border-box;" />
+                    <input type="text" id="immo-popup-input" value="${url}" readonly style="flex-grow: 1; padding: 10px 12px; border: 1px solid #333; background: #000; color: #e0e0e0; border-radius: 6px; font-size: 13px; outline: none; box-sizing: border-box;" />
                     <button id="immo-popup-copy" style="background: #333; border: 1px solid #555; color: white; padding: 10px; cursor: pointer; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; box-sizing: border-box;" title="Copy to clipboard">
                         <svg id="immo-copy-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                     </button>
@@ -152,7 +152,7 @@
             popup.remove();
             findId = null;
             sessionStorage.removeItem('immotop_find_id');
-            enforceHighlights();
+            enforceHighlights(); 
         };
 
         const copyBtn = document.getElementById('immo-popup-copy');
@@ -204,11 +204,13 @@
     function enforceHighlights() {
         if (targetIds.length === 0 && !downgradeId && !findId) return;
 
+        // FIX: Ensure containers is reliably populated as an Array from a NodeList
         let containers = [];
         if (isImmotop) {
-            containers = document.querySelectorAll('.search-agency-item-container');
+            containers = Array.from(document.querySelectorAll('.search-agency-item-container'));
         } else if (isAthome) {
-            containers = document.querySelectorAll('tr.bg-white.highlight');
+            // Broadened selector to catch Athome rows regardless of exact hover states
+            containers = Array.from(document.querySelectorAll('tbody tr.bg-white'));
         }
 
         let triggerPopupUrl = null;
@@ -239,8 +241,8 @@
                     }
                 }
                 nativeBadge = container.querySelector('.ad-badge.first');
-            }
-
+            } 
+            
             // --- ATHOME LOGIC ---
             else if (isAthome) {
                 const refSpans = Array.from(container.querySelectorAll('span.text-xs.text-raven'));
@@ -253,7 +255,7 @@
                     if (text.includes('ID:')) idVal = text.replace('ID:', '').trim();
                 });
 
-                adId = idVal;
+                adId = idVal; 
 
                 if (findId && refVal === findId) {
                     matchType = 'find';
@@ -261,7 +263,7 @@
                     const imgEl = container.querySelector('img.object-cover');
                     if (imgEl) imgUrl = imgEl.src;
                 }
-                nativeBadge = null;
+                nativeBadge = null; 
             }
 
             // Identify general highlights / downgrades
@@ -296,11 +298,10 @@
                 };
 
                 if (newState === 'find') {
-                    // Stripped border style here to leave background listing untouched visually
-                    container.style.cssText = '';
+                    container.style.cssText = ''; 
                     removeBadge(container);
                     if (nativeBadge) nativeBadge.style.removeProperty('background-color');
-
+                    
                     if (!document.getElementById('immotop-find-popup')) {
                         triggerPopupUrl = copyUrl;
                         triggerPopupImg = imgUrl;
@@ -325,7 +326,7 @@
                     if (nativeBadge) nativeBadge.style.removeProperty('background-color');
 
                 } else if (newState === 'none') {
-                    container.style.cssText = '';
+                    container.style.cssText = ''; 
                     removeBadge(container);
                     if (nativeBadge) nativeBadge.style.removeProperty('background-color');
                 }
