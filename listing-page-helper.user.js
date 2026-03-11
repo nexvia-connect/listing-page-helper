@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         Listing page helper
 // @namespace    http://tampermonkey.net/
-// @version      8.1
+// @version      8.2
 // @description  Force highlight specific listings, find links, and survive aggressive filters across Immotop and Athome
 // @match        https://pro.immotop.lu/*
 // @match        https://www.athome.lu/pro/v2/listings*
-// @updateURL    https://raw.githubusercontent.com/nexvia-connect/immotop-helper/main/immotop-helper-script.user.js
-// @downloadURL  https://raw.githubusercontent.com/nexvia-connect/immotop-helper/main/immotop-helper-script.user.js
+// @updateURL    https://raw.githubusercontent.com/nexvia-connect/listing-page-helper/main/listing-page-helper.user.js
+// @downloadURL  https://raw.githubusercontent.com/nexvia-connect/listing-page-helper/main/listing-page-helper.user.js
 // @grant        none
 // ==/UserScript==
 
