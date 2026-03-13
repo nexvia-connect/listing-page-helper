@@ -2,7 +2,9 @@
 (function() {
     'use strict';
 
-    let targets = {}; 
+    // 1. Parse the IDs from the URL or sessionStorage
+    let upgrades = [];
+    let downgrades = [];
     let searchStr = window.location.search;
     
     const savedSearch = sessionStorage.getItem('immo_helper_search_command');
@@ -14,144 +16,152 @@
     const queryParams = searchStr.replace('?', '').split('&');
     queryParams.forEach(param => {
         const decoded = decodeURIComponent(param);
-        if (decoded.startsWith('upgrade=')) targets[decoded.split('=')[1]] = 'upgrade';
-        else if (decoded.startsWith('downgrade=')) targets[decoded.split('=')[1]] = 'downgrade';
-        else if (/^\d{6,8}$/.test(decoded)) targets[decoded] = 'upgrade';
+        if (decoded.startsWith('upgrade=')) {
+            upgrades.push(decoded.split('=')[1]);
+        } else if (decoded.startsWith('downgrade=')) {
+            downgrades.push(decoded.split('=')[1]);
+        } else if (/^\d{6,8}$/.test(decoded)) {
+            upgrades.push(decoded);
+        }
     });
 
-    if (Object.keys(targets).length === 0) return;
+    if (upgrades.length === 0 && downgrades.length === 0) return;
 
-    const isImmotop = window.location.hostname.includes('immotop.lu');
-
-    // 1. Inject CSS
+    // 2. Inject CSS for Centered Dashboard
     const style = document.createElement('style');
     style.textContent = `
-        #immo-cmd-popup {
-            position: fixed; top: 80px; right: 30px; z-index: 100000; 
-            background: #1a1a1a; border-radius: 8px; border: 1px solid #333; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.8); 
-            font-family: system-ui, -apple-system, sans-serif; width: 340px;
-            display: flex; flex-direction: column;
+        #immo-cmd-center {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            z-index: 100000; background: #1a1a1a; border-radius: 12px;
+            border: 1px solid #333; box-shadow: 0 20px 50px rgba(0,0,0,0.9);
+            font-family: system-ui, -apple-system, sans-serif; width: 420px;
+            display: flex; flex-direction: column; overflow: hidden;
         }
         #immo-cmd-header {
-            cursor: grab; background: #2a2a2a; padding: 10px 14px; color: white; 
-            display: flex; justify-content: space-between; align-items: center; 
-            border-radius: 8px 8px 0 0; border-bottom: 1px solid #333;
+            cursor: grab; background: #2a2a2a; padding: 14px 20px; color: white;
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid #333;
         }
-        #immo-cmd-close { cursor: pointer; font-size: 16px; line-height: 1; color: #888; }
-        #immo-cmd-list { padding: 0; margin: 0; list-style: none; max-height: 350px; overflow-y: auto; background: #1a1a1a; border-radius: 0 0 8px 8px; }
-        .immo-cmd-row { padding: 8px 14px; border-bottom: 1px solid #2a2a2a; display: flex; justify-content: space-between; align-items: center; }
-        .immo-cmd-id { font-weight: 500; color: #e0e0e0; font-size: 13px; font-family: monospace; }
-        .immo-cmd-actions { display: flex; gap: 6px; }
-        .immo-btn { height: 26px; padding: 0 10px; border: none; border-radius: 4px; font-weight: 700; font-size: 10px; cursor: pointer; transition: all 0.2s; }
-        .immo-btn-up { background: transparent; border: 1px solid #2e7d32; color: #a3dca3; }
-        .immo-btn-up.primary { background: #1e4620; border-color: #62c462; }
-        .immo-btn-down { background: transparent; border: 1px solid #7f1d1d; color: #fca5a5; }
-        .immo-btn-down.primary { background: #4a1515; border-color: #ef4444; }
-        .immo-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-        .immo-btn-working { background: #92400e !important; color: #fff !important; }
+        #immo-cmd-close { cursor: pointer; font-size: 18px; color: #888; transition: color 0.2s; }
+        #immo-cmd-close:hover { color: #fff; }
+        
+        #immo-cmd-content { padding: 20px; color: #e0e0e0; }
+        .immo-section { margin-bottom: 16px; }
+        .immo-section-title { font-size: 11px; font-weight: 800; color: #888; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 1px; }
+        .immo-id-tag { 
+            display: inline-block; background: #2a2a2a; color: #fff; 
+            padding: 4px 10px; border-radius: 4px; font-family: monospace; 
+            font-size: 13px; margin: 0 4px 4px 0; border: 1px solid #444;
+        }
+        .tag-up { border-color: #2e7d32; color: #a3dca3; }
+        .tag-down { border-color: #7f1d1d; color: #fca5a5; }
+
+        #immo-apply-all {
+            width: 100%; padding: 14px; background: #2e7d32; color: white;
+            border: none; border-radius: 0 0 12px 12px; font-weight: 800;
+            font-size: 14px; cursor: pointer; transition: all 0.2s;
+            text-transform: uppercase; letter-spacing: 1px;
+        }
+        #immo-apply-all:hover { background: #388e3c; }
+        #immo-apply-all:active { transform: scale(0.98); }
+        #immo-apply-all:disabled { background: #333; color: #666; cursor: not-allowed; }
+
+        .working-spinner {
+            display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.3);
+            border-radius: 50%; border-top-color: #fff; animation: spin 1s ease-in-out infinite; margin-right: 8px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     `;
     document.head.appendChild(style);
 
-    // 2. Build Popup
-    const popup = document.createElement('div');
-    popup.id = 'immo-cmd-popup';
-    popup.innerHTML = `
-        <div id="immo-cmd-header"><strong>⚡ Action Center</strong><span id="immo-cmd-close">&#x2715;</span></div>
-        <div id="immo-cmd-list"></div>
+    // 3. Create the UI
+    const cmd = document.createElement('div');
+    cmd.id = 'immo-cmd-center';
+    
+    let upgradeHtml = upgrades.length > 0 ? `
+        <div class="immo-section">
+            <div class="immo-section-title">Listings to Upgrade (FIRST)</div>
+            <div>${upgrades.map(id => `<span class="immo-id-tag tag-up">${id}</span>`).join('')}</div>
+        </div>` : '';
+
+    let downgradeHtml = downgrades.length > 0 ? `
+        <div class="immo-section">
+            <div class="immo-section-title">Listings to Downgrade (NORMAL)</div>
+            <div>${downgrades.map(id => `<span class="immo-id-tag tag-down">${id}</span>`).join('')}</div>
+        </div>` : '';
+
+    cmd.innerHTML = `
+        <div id="immo-cmd-header">
+            <strong style="font-size: 14px; letter-spacing: 0.5px;">⚡ Format Command Center</strong>
+            <span id="immo-cmd-close">&#x2715;</span>
+        </div>
+        <div id="immo-cmd-content">
+            ${upgradeHtml}
+            ${downgradeHtml}
+        </div>
+        <button id="immo-apply-all">Apply All Actions</button>
     `;
-    document.body.appendChild(popup);
+    document.body.appendChild(cmd);
 
-    const list = document.getElementById('immo-cmd-list');
-    Object.keys(targets).forEach(id => {
-        const row = document.createElement('div');
-        row.className = 'immo-cmd-row';
-        row.setAttribute('data-target-id', id);
-        row.innerHTML = `
-            <span class="immo-cmd-id">${id}</span>
-            <div class="immo-cmd-actions">
-                <button class="immo-btn immo-btn-down ${targets[id] === 'downgrade' ? 'primary' : ''}" data-action="0">NORMAL</button>
-                <button class="immo-btn immo-btn-up ${targets[id] === 'upgrade' ? 'primary' : ''}" data-action="2">FIRST THIS</button>
-            </div>
-        `;
-        list.appendChild(row);
-    });
+    // 4. Action Logic
+    async function performAction(adId, typeValue) {
+        // typeValue: 2 for First, 0 for Normal
+        const xajaxFunc = (typeof unsafeWindow !== 'undefined' && unsafeWindow.xajax_chListingFeat) 
+                          ? unsafeWindow.xajax_chListingFeat 
+                          : window.xajax_chListingFeat;
 
-    // 3. The Logic (Hijacking Immotop's xajax)
-    async function triggerAction(adId, typeValue, btn) {
-        if (typeof unsafeWindow !== 'undefined' && unsafeWindow.xajax_chListingFeat) {
-            unsafeWindow.xajax_chListingFeat(adId, typeValue);
-        } else if (window.xajax_chListingFeat) {
-            window.xajax_chListingFeat(adId, typeValue);
+        if (xajaxFunc) {
+            xajaxFunc(adId, typeValue);
         } else {
-            // Fallback: Try to find the button in the actual DOM and click it
-            const nativeBtn = document.querySelector(`.search-agency-item-container a[onclick*="xajax_chListingFeat('${adId}'"]`);
-            if (nativeBtn) nativeBtn.click();
+            // Fallback for direct DOM interaction
+            const btn = document.querySelector(`.search-agency-item-container a[onclick*="xajax_chListingFeat('${adId}'"]`);
+            if (btn) btn.click();
         }
     }
 
-    list.addEventListener('click', async (e) => {
-        if (e.target.tagName === 'BUTTON') {
-            const btn = e.target;
-            const adId = btn.closest('.immo-cmd-row').getAttribute('data-target-id');
-            const typeValue = btn.getAttribute('data-action'); // 2 for First, 0 for Normal
+    const applyBtn = document.getElementById('immo-apply-all');
+    applyBtn.onclick = async () => {
+        applyBtn.disabled = true;
+        applyBtn.innerHTML = `<span class="working-spinner"></span> Processing...`;
 
-            btn.classList.add('immo-btn-working');
-            btn.textContent = '...';
-            
-            triggerAction(adId, typeValue, btn);
-
-            setTimeout(() => {
-                btn.classList.remove('immo-btn-working');
-                syncButtonStates();
-            }, 1500);
+        // Process Upgrades
+        for (const id of upgrades) {
+            await performAction(id, 2);
+            await new Promise(r => setTimeout(r, 600)); // Slight delay to avoid server spam
         }
-    });
 
-    // 4. State Sync (Graying out what's already done)
-    function syncButtonStates() {
-        const containers = Array.from(document.querySelectorAll('.search-agency-item-container'));
-        Object.keys(targets).forEach(id => {
-            const row = document.querySelector(`.immo-cmd-row[data-target-id="${id}"]`);
-            if (!row) return;
+        // Process Downgrades
+        for (const id of downgrades) {
+            await performAction(id, 0);
+            await new Promise(r => setTimeout(r, 600));
+        }
 
-            const upBtn = row.querySelector('.immo-btn-up');
-            const downBtn = row.querySelector('.immo-btn-down');
+        applyBtn.innerHTML = `✓ All Actions Applied`;
+        applyBtn.style.background = '#1b5e20';
+        
+        setTimeout(() => {
+            cmd.style.opacity = '0';
+            cmd.style.transition = 'opacity 0.5s ease';
+            setTimeout(() => cmd.remove(), 500);
+        }, 1500);
+    };
 
-            let isFirst = false;
-            for (let c of containers) {
-                if (c.innerHTML.includes(id) && c.querySelector('.ad-badge.first')) {
-                    isFirst = true; break;
-                }
-            }
-
-            if (isFirst) {
-                upBtn.disabled = true; upBtn.textContent = '✓ FIRST';
-                downBtn.disabled = false; downBtn.textContent = 'DOWNGRADE';
-            } else {
-                upBtn.disabled = false; upBtn.textContent = 'FIRST THIS';
-                downBtn.disabled = true; downBtn.textContent = '✓ NORMAL';
-            }
-        });
-    }
-
-    // 5. Dragging & Init
-    document.getElementById('immo-cmd-close').onclick = () => popup.remove();
+    // 5. Dragging & Closing
+    document.getElementById('immo-cmd-close').onclick = () => cmd.remove();
     const header = document.getElementById('immo-cmd-header');
     let isDragging = false, startX, startY;
     header.onmousedown = (e) => {
         isDragging = true; startX = e.clientX; startY = e.clientY;
-        const rect = popup.getBoundingClientRect();
-        popup.style.transform = 'none'; popup.style.left = rect.left + 'px'; popup.style.top = rect.top + 'px'; popup.style.right = 'auto';
+        cmd.style.transform = 'none';
+        cmd.style.left = cmd.offsetLeft + 'px';
+        cmd.style.top = cmd.offsetTop + 'px';
+        header.style.cursor = 'grabbing';
         window.onmousemove = (ev) => {
             if (!isDragging) return;
-            popup.style.left = (parseInt(popup.style.left, 10) + (ev.clientX - startX)) + 'px';
-            popup.style.top = (parseInt(popup.style.top, 10) + (ev.clientY - startY)) + 'px';
+            cmd.style.left = (cmd.offsetLeft + (ev.clientX - startX)) + 'px';
+            cmd.style.top = (cmd.offsetTop + (ev.clientY - startY)) + 'px';
             startX = ev.clientX; startY = ev.clientY;
         };
-        window.onmouseup = () => { isDragging = false; window.onmousemove = null; };
+        window.onmouseup = () => { isDragging = false; header.style.cursor = 'grab'; window.onmousemove = null; };
     };
-
-    setInterval(syncButtonStates, 2000);
-    syncButtonStates();
 })();
