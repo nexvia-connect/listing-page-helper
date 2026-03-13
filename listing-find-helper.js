@@ -157,9 +157,11 @@
                     if (text.includes('Ref:')) refVal = text.replace('Ref:', '').trim();
                     if (text.includes('ID:')) idVal = text.replace('ID:', '').trim();
                 });
-                if (refVal === findId) {
+                if (refVal === findId && idVal) {
                     isMatch = true;
-                    copyUrl = `https://www.athome.lu/id-${idVal}`;
+                    // The magic fix: adding .html
+                    copyUrl = `https://www.athome.lu/id-${idVal}.html`;
+                    
                     const imgEl = container.querySelector('img.object-cover');
                     if (imgEl) imgUrl = imgEl.src;
                 }
