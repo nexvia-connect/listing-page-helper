@@ -53,6 +53,13 @@
         .immo-id-tag { display: inline-block; background: #252525; color: #fff; padding: 5px 12px; border-radius: 4px; font-family: monospace; font-size: 13px; margin: 0 6px 6px 0; border: 1px solid #444; }
         .tag-up { border-left: 3px solid #62c462; color: #a3dca3; }
         .tag-down { border-left: 3px solid #ef4444; color: #fca5a5; }
+        
+        #immo-log-container {
+            background: #000; color: #0f0; font-family: monospace; font-size: 10px;
+            padding: 10px; height: 100px; overflow-y: auto; border-top: 1px solid #333;
+            white-space: pre-wrap; word-break: break-all;
+        }
+
         #immo-apply-all {
             width: 100%; padding: 18px; background: #2e7d32; color: white;
             border: none; border-radius: 0 0 12px 12px; font-weight: 800;
@@ -60,7 +67,7 @@
         }
         #immo-apply-all:hover { background: #388e3c; }
         #immo-apply-all:disabled { background: #333; color: #666; cursor: not-allowed; }
-        #immo-status-bar { font-size: 12px; color: #62c462; text-align: center; margin-top: 10px; font-weight: 600; min-height: 15px; }
+        #immo-status-bar { font-size: 12px; color: #62c462; text-align: center; margin-bottom: 10px; font-weight: 600; }
     `;
     document.head.appendChild(style);
 
@@ -72,62 +79,75 @@
 
     cmd.innerHTML = `
         <div id="immo-cmd-header"><strong>⚡ Format Command Center</strong><span id="immo-cmd-close">&#x2715;</span></div>
-        <div id="immo-cmd-content">${upHtml}${downHtml}<div id="immo-status-bar"></div></div>
+        <div id="immo-cmd-content">
+            ${upHtml}
+            ${downHtml}
+            <div id="immo-status-bar">Waiting for action...</div>
+        </div>
+        <div id="immo-log-container">-- LOG START --\n</div>
         <button id="immo-apply-all">Apply All Actions</button>
     `;
     document.body.appendChild(cmd);
 
     const applyBtn = document.getElementById('immo-apply-all');
+    const logContainer = document.getElementById('immo-log-container');
+
     applyBtn.onclick = () => {
         applyBtn.disabled = true;
-        applyBtn.innerHTML = `In Progress...`;
+        applyBtn.innerHTML = `Processing...`;
         
-        // Use a self-executing script to hit the page context
         const scriptCode = `
             (async function() {
                 const ups = [${upgrades.map(id => '"' + id + '"').join(',')}];
                 const downs = [${downgrades.map(id => '"' + id + '"').join(',')}];
                 const url = window.location.origin + window.location.pathname;
+                
+                const logger = (txt) => {
+                    const log = document.getElementById('immo-log-container');
+                    if(log) {
+                        log.innerText += txt + "\\n";
+                        log.scrollTop = log.scrollHeight;
+                    }
+                };
                 const setStatus = (t) => { const s = document.getElementById('immo-status-bar'); if(s) s.innerText = t; };
 
-                // Processing Upgrades (Featured = 2)
+                async function fireRequest(id, val) {
+                    try {
+                        logger(">> Sending ID: " + id + " | Val: " + val);
+                        const response = await jQuery.ajax({ 
+                            type: "POST", 
+                            url: url, 
+                            data: "h_ajax=1&pName=chListingFeat&pArgs[0]=" + id + "&pArgs[1]=" + val, 
+                            headers: { "X-Requested-With": "XMLHttpRequest" } 
+                        });
+                        logger("<< Response: " + JSON.stringify(response));
+
+                        // Fire Refresh
+                        await jQuery.ajax({ 
+                            type: "POST", 
+                            url: url, 
+                            data: "h_ajax=1&pName=vis_ad_refresh&pArgs[0]=" + id, 
+                            headers: { "X-Requested-With": "XMLHttpRequest" } 
+                        });
+                    } catch (e) {
+                        logger("!! ERROR: " + e.status + " " + e.statusText);
+                    }
+                }
+
                 for (const id of ups) {
                     setStatus("Upgrading " + id + "...");
-                    await jQuery.ajax({ 
-                        type: "POST", 
-                        url: url, 
-                        data: "h_ajax=1&pName=chListingFeat&pArgs[0]=" + id + "&pArgs[1]=2", 
-                        headers: { "X-Requested-With": "XMLHttpRequest" } 
-                    });
-                    await jQuery.ajax({ 
-                        type: "POST", 
-                        url: url, 
-                        data: "h_ajax=1&pName=vis_ad_refresh&pArgs[0]=" + id, 
-                        headers: { "X-Requested-With": "XMLHttpRequest" } 
-                    });
-                    await new Promise(r => setTimeout(r, 400));
+                    await fireRequest(id, 2);
+                    await new Promise(r => setTimeout(r, 500));
                 }
-
-                // Processing Downgrades (Featured = 0)
                 for (const id of downs) {
                     setStatus("Downgrading " + id + "...");
-                    await jQuery.ajax({ 
-                        type: "POST", 
-                        url: url, 
-                        data: "h_ajax=1&pName=chListingFeat&pArgs[0]=" + id + "&pArgs[1]=0", 
-                        headers: { "X-Requested-With": "XMLHttpRequest" } 
-                    });
-                    await jQuery.ajax({ 
-                        type: "POST", 
-                        url: url, 
-                        data: "h_ajax=1&pName=vis_ad_refresh&pArgs[0]=" + id, 
-                        headers: { "X-Requested-With": "XMLHttpRequest" } 
-                    });
-                    await new Promise(r => setTimeout(r, 400));
+                    await fireRequest(id, 0);
+                    await new Promise(r => setTimeout(r, 500));
                 }
 
-                setStatus("Success! Refreshing...");
-                setTimeout(() => window.location.reload(), 1000);
+                setStatus("Processing finished.");
+                logger("-- DONE. PLEASE COPY THIS LOG BEFORE RELOADING --");
+                // setTimeout(() => window.location.reload(), 3000); 
             })();
         `;
         const s = document.createElement('script'); s.textContent = scriptCode;
