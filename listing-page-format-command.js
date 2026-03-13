@@ -44,22 +44,21 @@
             border: 1px solid #333; box-shadow: 0 20px 50px rgba(0,0,0,0.9);
             font-family: system-ui, sans-serif; width: 550px;
             display: flex; flex-direction: column; overflow: hidden;
+            user-select: none;
         }
         #immo-cmd-header { cursor: grab; background: #2a2a2a; padding: 14px 20px; color: white; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
-        #immo-cmd-close { cursor: pointer; font-size: 20px; color: #888; font-weight: bold; }
-        #immo-cmd-content { padding: 25px; color: #e0e0e0; }
+        #immo-cmd-header:active { cursor: grabbing; }
+        #immo-cmd-close { cursor: pointer; font-size: 20px; color: #888; font-weight: bold; padding: 0 5px; }
+        #immo-cmd-content { padding: 25px; color: #e0e0e0; pointer-events: auto; }
         .immo-section { margin-bottom: 20px; }
         .immo-section-title { font-size: 11px; font-weight: 800; color: #888; text-transform: uppercase; margin-bottom: 10px; letter-spacing: 1.5px; }
         .immo-id-tag { display: inline-block; background: #252525; color: #fff; padding: 5px 12px; border-radius: 4px; font-family: monospace; font-size: 13px; margin: 0 6px 6px 0; border: 1px solid #444; }
         .tag-up { border-left: 3px solid #62c462; color: #a3dca3; }
         .tag-down { border-left: 3px solid #ef4444; color: #fca5a5; }
         
-        /* Log Section Styles */
         #immo-log-toggle { background: #222; padding: 8px 20px; color: #aaa; font-size: 10px; cursor: pointer; display: flex; justify-content: space-between; border-top: 1px solid #333; border-bottom: 1px solid #333; }
-        #immo-log-toggle:hover { color: #fff; background: #2a2a2a; }
-        #immo-log-body { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 10px; height: 120px; overflow-y: auto; display: none; }
+        #immo-log-body { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 10px; height: 120px; overflow-y: auto; display: none; text-align: left; }
         #immo-copy-logs { background: #444; color: #fff; border: none; padding: 2px 8px; border-radius: 3px; font-size: 9px; cursor: pointer; }
-        #immo-copy-logs:hover { background: #666; }
 
         #immo-apply-all {
             width: 100%; padding: 18px; background: #2e7d32; color: white;
@@ -89,18 +88,15 @@
     `;
     document.body.appendChild(cmd);
 
-    // Collapsible Logic
-    const logToggle = document.getElementById('immo-log-toggle');
+    // Collapsible/Copy Log logic
     const logBody = document.getElementById('immo-log-body');
     const arrow = document.getElementById('immo-arrow');
-    logToggle.onclick = (e) => {
-        if (e.target.id === 'immo-copy-logs') return; // Don't collapse when copying
+    document.getElementById('immo-log-toggle').onclick = (e) => {
+        if (e.target.id === 'immo-copy-logs') return;
         const isHidden = logBody.style.display === 'none' || logBody.style.display === '';
         logBody.style.display = isHidden ? 'block' : 'none';
         arrow.innerText = isHidden ? '▲' : '▼';
     };
-
-    // Copy Logs Logic
     document.getElementById('immo-copy-logs').onclick = () => {
         navigator.clipboard.writeText(logBody.innerText);
         const btn = document.getElementById('immo-copy-logs');
@@ -125,23 +121,17 @@
                     if (typeof xajax_chListingFeat === 'function') {
                         try {
                             xajax_chListingFeat(id, val);
-                            log("   -> Triggered xajax_chListingFeat");
-                        } catch(e) { log("   !! XAJAX ERROR: " + e.message); }
-                    } else { log("   !! CRITICAL: xajax_chListingFeat function not found"); }
+                            log("   -> Triggered natively");
+                        } catch(e) { log("   !! ERROR: " + e.message); }
+                    } else { log("   !! ERROR: Function missing"); }
                     await new Promise(r => setTimeout(r, 800));
                 }
 
-                for (const id of ups) {
-                    setStatus("Upgrading " + id + "...");
-                    await safeCall(id, 2, "UPGRADE");
-                }
-                for (const id of downs) {
-                    setStatus("Downgrading " + id + "...");
-                    await safeCall(id, 0, "DOWNGRADE");
-                }
+                for (const id of ups) { setStatus("Upgrading " + id + "..."); await safeCall(id, 2, "UP"); }
+                for (const id of downs) { setStatus("Downgrading " + id + "..."); await safeCall(id, 0, "DOWN"); }
 
                 setStatus("Processing Complete!");
-                log("-- ALL ACTIONS FIRED. RELOADING IN 2S --");
+                log("-- DONE. RELOADING... --");
                 setTimeout(() => window.location.reload(), 2000);
             })();
         `;
@@ -149,17 +139,35 @@
         document.documentElement.appendChild(s); s.remove();
     };
 
+    // --- CLEAN DRAGGING LOGIC ---
     document.getElementById('immo-cmd-close').onclick = () => { cmd.remove(); window.immoCmdLoaded = false; };
     const header = document.getElementById('immo-cmd-header');
-    let isDragging = false, startX, startY;
-    header.onmousedown = (e) => {
-        isDragging = true; startX = e.clientX; startY = e.clientY;
-        cmd.style.transform = 'none'; cmd.style.left = cmd.offsetLeft + 'px'; cmd.style.top = cmd.offsetTop + 'px';
-        window.onmousemove = (ev) => { if (isDragging) {
-            cmd.style.left = (cmd.offsetLeft + (ev.clientX - startX)) + 'px';
-            cmd.style.top = (cmd.offsetTop + (ev.clientY - startY)) + 'px';
-            startX = ev.clientX; startY = ev.clientY;
-        }};
-        window.onmouseup = () => { isDragging = false; window.onmousemove = null; };
-    };
+    let offsetX, offsetY, isDragging = false;
+
+    header.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        const rect = cmd.getBoundingClientRect();
+        
+        // Calculate where the mouse is relative to the popup's top-left corner
+        offsetX = e.clientX - rect.left;
+        offsetY = e.clientY - rect.top;
+
+        // Transition from Centered (Translate) to Absolute (Top/Left)
+        cmd.style.transform = 'none';
+        cmd.style.left = rect.left + 'px';
+        cmd.style.top = rect.top + 'px';
+        cmd.style.position = 'fixed';
+        cmd.style.margin = '0';
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        cmd.style.left = (e.clientX - offsetX) + 'px';
+        cmd.style.top = (e.clientY - offsetY) + 'px';
+    });
+
+    window.addEventListener('mouseup', () => {
+        isDragging = false;
+    });
+
 })();
