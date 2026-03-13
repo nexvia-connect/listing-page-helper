@@ -10,6 +10,12 @@
     let targetIds = [];
     let downgradeId = null;
     let hasScannedPagination = false;
+    
+    // NEW: Memory cache to survive page changes and AJAX loads
+    let paginatorCache = {
+        pages: {}, 
+        isReady: false
+    };
 
     const isImmotop = window.location.hostname.includes('immotop.lu');
     const isAthome = window.location.hostname.includes('athome.lu');
@@ -179,6 +185,9 @@
                 }
             }
         });
+
+        // Apply pagination styles safely every time the DOM mutates
+        applyCachedPaginatorStyles();
     }
 
     async function scanPaginationPages() {
@@ -186,23 +195,15 @@
         if (targetIds.length === 0 && !downgradeId) return;
 
         hasScannedPagination = true;
-
-        const numberLinks = Array.from(document.querySelectorAll('#paginator nav ul li a[data-pg]'));
-        const visiblePages = numberLinks.map(a => parseInt(a.getAttribute('data-pg'), 10)).filter(n => !isNaN(n));
-        
-        const minVisible = visiblePages.length > 0 ? Math.min(...visiblePages) : 1;
-        const maxVisible = visiblePages.length > 0 ? Math.max(...visiblePages) : 1;
+        paginatorCache.isReady = false;
+        paginatorCache.pages = {}; // Clear old memory
 
         let basePath = window.location.pathname.replace(/index\d*\.html$/, '');
         if (!basePath.endsWith('/')) basePath += '/';
 
-        let nextState = { firstAction: false, firstDone: false, downAction: false, downDone: false };
-        let prevState = { firstAction: false, firstDone: false, downAction: false, downDone: false };
-
         const MAX_PAGES_TO_SCAN = 30;
         let consecutiveEmptyPages = 0;
 
-        // Tracking mechanisms for early exit
         let foundUpgrades = new Set();
         let foundDown = false;
 
@@ -238,40 +239,25 @@
 
                     if (adId) {
                         if (targetIds.includes(adId)) {
-                            foundUpgrades.add(adId); // Track found upgrade
+                            foundUpgrades.add(adId); 
                             if (nativeBadge) pageState.firstDone = true;
                             else pageState.firstAction = true;
                         } else if (adId === downgradeId) {
-                            foundDown = true; // Track found downgrade
+                            foundDown = true; 
                             if (!nativeBadge) pageState.downDone = true;
                             else pageState.downAction = true;
                         }
                     }
                 });
 
-                if (p < minVisible) {
-                    if (pageState.firstAction) prevState.firstAction = true;
-                    if (pageState.firstDone) prevState.firstDone = true;
-                    if (pageState.downAction) prevState.downAction = true;
-                    if (pageState.downDone) prevState.downDone = true;
-                } else if (p > maxVisible) {
-                    if (pageState.firstAction) nextState.firstAction = true;
-                    if (pageState.firstDone) nextState.firstDone = true;
-                    if (pageState.downAction) nextState.downAction = true;
-                    if (pageState.downDone) nextState.downDone = true;
-                } else {
-                    const numberBtn = document.querySelector(`#paginator a[href$="index${p}.html"]:not(.prev-next)`);
-                    if (numberBtn && (pageState.firstAction || pageState.firstDone || pageState.downAction || pageState.downDone)) {
-                        applyPaginatorStyle(numberBtn.closest('li') || numberBtn, pageState);
-                    }
-                }
+                // Save to cache instead of immediately painting
+                paginatorCache.pages[p] = pageState;
 
-                // Check for early exit condition
                 const allUpgradesFound = targetIds.every(id => foundUpgrades.has(id));
                 const downgradeSatisfied = downgradeId ? foundDown : true;
 
                 if (allUpgradesFound && downgradeSatisfied) {
-                    break; // Stop fetching, we found everything!
+                    break; 
                 }
 
             } catch (err) {
@@ -280,14 +266,60 @@
             }
         }
 
+        paginatorCache.isReady = true;
+        applyCachedPaginatorStyles();
+    }
+
+    function applyCachedPaginatorStyles() {
+        if (!paginatorCache.isReady) return;
+
+        // 1. Sweep the board to remove old/stale styles before painting new ones
+        const styledElements = document.querySelectorAll('[data-immo-styled]');
+        styledElements.forEach(el => {
+            el.style.cssText = '';
+            el.removeAttribute('data-immo-styled');
+        });
+
+        // 2. Find where the user currently is
+        const currentPageLink = document.querySelector('#paginator nav ul li.is_current a') || document.querySelector('#paginator a.current');
+        const currentPage = currentPageLink ? parseInt(currentPageLink.getAttribute('data-pg') || currentPageLink.textContent, 10) : 1;
+
+        let accumulatedPrev = { firstAction: false, firstDone: false, downAction: false, downDone: false };
+        let accumulatedNext = { firstAction: false, firstDone: false, downAction: false, downDone: false };
+
+        // 3. Paint the targets from memory
+        for (const [pStr, state] of Object.entries(paginatorCache.pages)) {
+            const p = parseInt(pStr, 10);
+            if (!state.firstAction && !state.firstDone && !state.downAction && !state.downDone) continue;
+
+            const numberBtn = document.querySelector(`#paginator a[href$="index${p}.html"]:not(.prev-next)`);
+            
+            if (numberBtn) {
+                applyPaginatorStyle(numberBtn.closest('li') || numberBtn, state);
+            } else {
+                // If a target page is NOT visible on the screen (e.g., hidden in a ".. 5"), push the style to the arrows
+                if (p < currentPage) {
+                    accumulatedPrev.firstAction = accumulatedPrev.firstAction || state.firstAction;
+                    accumulatedPrev.firstDone = accumulatedPrev.firstDone || state.firstDone;
+                    accumulatedPrev.downAction = accumulatedPrev.downAction || state.downAction;
+                    accumulatedPrev.downDone = accumulatedPrev.downDone || state.downDone;
+                } else if (p > currentPage) {
+                    accumulatedNext.firstAction = accumulatedNext.firstAction || state.firstAction;
+                    accumulatedNext.firstDone = accumulatedNext.firstDone || state.firstDone;
+                    accumulatedNext.downAction = accumulatedNext.downAction || state.downAction;
+                    accumulatedNext.downDone = accumulatedNext.downDone || state.downDone;
+                }
+            }
+        }
+
         const prevArrowBtn = document.querySelector('.arr.pg-btn-left') || document.querySelector('.prev-next:first-of-type');
         const nextArrowBtn = document.querySelector('.arr.pg-btn-right') || document.querySelector('.prev-next:last-of-type');
         
-        if (prevArrowBtn && (prevState.firstAction || prevState.firstDone || prevState.downAction || prevState.downDone)) {
-            applyPaginatorStyle(prevArrowBtn, prevState);
+        if (prevArrowBtn && (accumulatedPrev.firstAction || accumulatedPrev.firstDone || accumulatedPrev.downAction || accumulatedPrev.downDone)) {
+            applyPaginatorStyle(prevArrowBtn, accumulatedPrev);
         }
-        if (nextArrowBtn && (nextState.firstAction || nextState.firstDone || nextState.downAction || nextState.downDone)) {
-            applyPaginatorStyle(nextArrowBtn, nextState);
+        if (nextArrowBtn && (accumulatedNext.firstAction || accumulatedNext.firstDone || accumulatedNext.downAction || accumulatedNext.downDone)) {
+            applyPaginatorStyle(nextArrowBtn, accumulatedNext);
         }
     }
 
@@ -313,6 +345,7 @@
         }
 
         if (bgStyle) {
+            targetElement.setAttribute('data-immo-styled', 'true');
             targetElement.style.cssText += `
                 ${bgStyle}
                 ${shadowStyle}
@@ -322,9 +355,13 @@
             
             const link = targetElement.tagName.toLowerCase() === 'a' ? targetElement : targetElement.querySelector('a');
             if (link) {
+                link.setAttribute('data-immo-styled', 'true');
                 link.style.cssText += `color: #fff !important; font-weight: bold !important; background: transparent !important;`;
                 const icon = link.querySelector('i');
-                if (icon) icon.style.color = '#fff !important;';
+                if (icon) {
+                    icon.setAttribute('data-immo-styled', 'true');
+                    icon.style.cssText += `color: #fff !important;`;
+                }
             }
         }
     }
@@ -337,6 +374,7 @@
         let mutTimeout;
         const observer = new MutationObserver(() => {
             clearTimeout(mutTimeout);
+            // enforceHighlights now calls applyCachedPaginatorStyles() automatically
             mutTimeout = setTimeout(enforceHighlights, 150);
         });
         
@@ -353,6 +391,8 @@
                 lastUrl = location.href;
                 syncState();
                 enforceHighlights();
+                
+                // Clear the scanner flags and trigger a fresh background search
                 hasScannedPagination = false;
                 scanPaginationPages(); 
             }
