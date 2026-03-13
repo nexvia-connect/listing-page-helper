@@ -5,28 +5,26 @@
     if (window.immoCmdLoaded) return;
     window.immoCmdLoaded = true;
 
-    // --- 1. PERSISTENT STATE & TRADITIONAL PARSING ---
+    // --- 1. PERSISTENT STATE & PARSING ---
     const STORAGE_KEY = 'immo_sync_logs';
     
     function getIdsFromUrl() {
         const params = new URLSearchParams(window.location.search);
         const upgradeString = params.get('upgrade') || "";
-        // Split by comma and filter out any empty strings or non-ID-like text
-        return upgradeString.split(',').filter(id => id.trim().length >= 7);
+        return upgradeString.split(',').filter(id => id.trim().length >= 7).map(id => id.trim());
     }
 
     let upgrades = JSON.parse(localStorage.getItem('immo_cmd_up') || "[]");
     const urlIds = getIdsFromUrl();
     
-    // If IDs are found in the URL, they take priority
     if (urlIds.length > 0) {
-        upgrades = urlIds.map(id => id.trim());
+        upgrades = urlIds;
         localStorage.setItem('immo_cmd_up', JSON.stringify(upgrades));
     }
 
-    const DELAY = 1000; // 1 second between server calls
+    const DELAY = 1000;
 
-    // --- 2. UI (Original 550px Wide, Professional Dark) ---
+    // --- 2. UI (550px Wide, Professional Dark) ---
     const style = document.createElement('style');
     style.textContent = `
         #immo-cmd-center {
@@ -37,7 +35,19 @@
         }
         #immo-cmd-header { padding: 12px 16px; background: #1a1a1a; border-bottom: 1px solid #333; cursor: grab; display: flex; justify-content: space-between; align-items: center; }
         #immo-id-container { padding: 15px; display: flex; flex-wrap: wrap; gap: 8px; background: #000; border-bottom: 1px solid #222; }
-        .id-badge { background: #2e7d32; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; border: 1px solid #3e8e41; }
+        
+        /* Light Green (Queued) */
+        .id-badge { 
+            background: #4caf50; color: white; padding: 4px 10px; border-radius: 4px; 
+            font-size: 12px; font-weight: bold; border: 1px solid #81c784; 
+            opacity: 0.7; transition: all 0.3s ease; 
+        }
+        /* Dark Green (Applied) */
+        .id-badge.active { 
+            background: #1b5e20; border-color: #2e7d32; opacity: 1; 
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
+        }
+
         #immo-status { padding: 20px; text-align: center; font-size: 14px; color: #62c462; font-weight: bold; border-bottom: 1px solid #222; }
         #immo-log { height: 200px; overflow-y: auto; background: #0a0a0a; padding: 12px; font-size: 11px; color: #aaa; display: flex; flex-direction: column-reverse; border-bottom: 1px solid #222; }
         .immo-btn-row { display: flex; }
@@ -66,13 +76,15 @@
 
     const logBox = document.getElementById('immo-log');
     const idBox = document.getElementById('immo-id-container');
+    const badgeMap = {}; // To track DOM elements by ID
 
-    // Display the cool little squares for each ID
     upgrades.forEach(id => {
         const span = document.createElement('span');
         span.className = 'id-badge';
+        span.id = `badge-${id}`;
         span.innerText = id;
         idBox.appendChild(span);
+        badgeMap[id] = span;
     });
 
     const addLog = (msg, type = '') => {
@@ -90,10 +102,9 @@
         logBox.prepend(div);
     };
 
-    // Keep logs persistent during session
     JSON.parse(sessionStorage.getItem(STORAGE_KEY) || "[]").forEach(renderLogEntry);
 
-    // --- 3. PROCESSING ENGINE (NETWORK-BASED) ---
+    // --- 3. ENGINE ---
     async function sendCommand(internalId, pName) {
         const body = `h_ajax=1&pName=${pName}&pArgs%5B0%5D=${internalId}`;
         await fetch(window.location.href, {
@@ -109,21 +120,19 @@
         btn.disabled = true;
         btn.innerText = "Processing...";
 
-        let toUpgrade = [];
+        let toUpgrade = []; // Stores {internalId, publicId}
         let toDowngrade = [];
         let page = 1;
         let keepScanning = true;
 
-        addLog(`Initiating scan for ${upgrades.length} targets.`, "up");
+        addLog("Sync started: Mapping listings to internal IDs...", "up");
 
         while (keepScanning && page <= 20) {
-            status.innerText = `Searching Page ${page}...`;
+            status.innerText = `Mapping Page ${page}...`;
             try {
                 const res = await fetch(`https://pro.immotop.lu/my-listings/index${page}.html`);
-                
-                // Break if page is non-existent or redirecting
                 if (!res.ok || res.redirected) {
-                    addLog(`Scan concluded at page ${page - 1}.`);
+                    addLog(`Scan complete at page ${page - 1}.`);
                     keepScanning = false;
                     break;
                 }
@@ -132,55 +141,65 @@
                 const doc = new DOMParser().parseFromString(html, 'text/html');
                 const listings = doc.querySelectorAll('.search-agency-item-container');
 
-                if (listings.length === 0) { 
-                    addLog(`Empty page detected. Ending scan.`);
-                    keepScanning = false; 
-                    break; 
-                }
+                if (listings.length === 0) { keepScanning = false; break; }
 
                 listings.forEach(row => {
                     const internalId = row.getAttribute('data-id');
                     const publicUrl = row.querySelector('a.domingo')?.href || "";
                     const isFirst = row.querySelector('button[data-role="featured"]')?.classList.contains('active');
                     
-                    // Match against target IDs (Public or Internal)
-                    const isTarget = upgrades.some(id => internalId.includes(id) || publicUrl.includes(id));
+                    // Check if current row matches any of our target public IDs
+                    const matchedPublicId = upgrades.find(id => internalId.includes(id) || publicUrl.includes(id));
 
-                    if (isTarget && !isFirst) toUpgrade.push(internalId);
-                    else if (!isTarget && isFirst) toDowngrade.push(internalId);
+                    if (matchedPublicId) {
+                        if (!isFirst) toUpgrade.push({ internalId, publicId: matchedPublicId });
+                        else {
+                            // If it's already first, mark it as active immediately
+                            if (badgeMap[matchedPublicId]) badgeMap[matchedPublicId].classList.add('active');
+                        }
+                    } else if (isFirst) {
+                        toDowngrade.push(internalId);
+                    }
                 });
                 page++;
             } catch (e) { keepScanning = false; }
         }
 
-        // Action Sequence
-        status.innerText = `Executing Removals (${toDowngrade.length})...`;
+        // Action 1: Clear non-targets
+        status.innerText = `Clearing slots (${toDowngrade.length})...`;
         for (const id of toDowngrade) {
-            addLog(`Freeing First slot: ${id}`, "down");
+            addLog(`Downgrading non-target: ${id}`, "down");
             await sendCommand(id, 'chListingFeat');
             await new Promise(r => setTimeout(r, DELAY));
         }
 
+        // Action 2: Upgrade targets and update badges
         status.innerText = `Applying Upgrades (${toUpgrade.length})...`;
-        for (const id of toUpgrade) {
-            addLog(`Upgrading to First: ${id}`, "up");
-            await sendCommand(id, 'chListingFeat');
-            await sendCommand(id, 'vis_ad_refresh');
+        for (const item of toUpgrade) {
+            addLog(`Upgrading target: ${item.publicId}`, "up");
+            await sendCommand(item.internalId, 'chListingFeat');
+            await sendCommand(item.internalId, 'vis_ad_refresh');
+            
+            // Visual Update: Turn the badge Dark Green
+            if (badgeMap[item.publicId]) {
+                badgeMap[item.publicId].classList.add('active');
+            }
+            
             await new Promise(r => setTimeout(r, DELAY));
         }
 
         status.innerText = "Sync Sequence Complete.";
-        addLog("✅ All background tasks finished successfully.", "up");
+        addLog("✅ All background tasks finished.", "up");
         setTimeout(() => window.location.reload(), 2000);
     }
 
-    // --- 4. CONTROLS & DRAG-AND-DROP ---
+    // --- 4. CONTROLS & DRAGGING ---
     document.getElementById('btn-start').onclick = processSync;
 
     document.getElementById('btn-copy').onclick = () => {
         const logs = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || "[]")
             .map(l => `[${l.time}] ${l.msg}`).join('\n');
-        navigator.clipboard.writeText(logs).then(() => alert("Logs copied to clipboard."));
+        navigator.clipboard.writeText(logs).then(() => alert("Logs copied!"));
     };
 
     document.getElementById('immo-close').onclick = () => {
@@ -189,7 +208,6 @@
         container.remove();
     };
 
-    // Restoration of the original dragging logic
     let header = document.getElementById('immo-cmd-header');
     header.onmousedown = function(e) {
         let shiftX = e.clientX - container.getBoundingClientRect().left;
@@ -197,7 +215,7 @@
         document.onmousemove = function(e) {
             container.style.left = e.clientX - shiftX + 'px';
             container.style.top = e.clientY - shiftY + 'px';
-            container.style.right = 'auto'; // Break the initial fixed alignment
+            container.style.right = 'auto'; 
         };
         document.onmouseup = function() { document.onmousemove = null; };
     };
