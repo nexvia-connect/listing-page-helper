@@ -5,13 +5,14 @@
     if (window.immoCmdLoaded) return;
     window.immoCmdLoaded = true;
 
-    // 1. Persistent State Management (using localStorage to survive redirects)
+    // 1. Persistent State Management
     let upgrades = JSON.parse(localStorage.getItem('immo_cmd_up') || "[]");
     let downgrades = JSON.parse(localStorage.getItem('immo_cmd_down') || "[]");
     let isAutoRunning = localStorage.getItem('immo_cmd_running') === 'true';
+    let isPaused = localStorage.getItem('immo_cmd_paused') === 'true';
 
-    // 2. Initial Parse from URL (Only if not already auto-running)
-    if (!isAutoRunning) {
+    // 2. Initial Parse from URL (Only if not already in a process)
+    if (!isAutoRunning && !isPaused) {
         let searchStr = window.location.search;
         const savedSearch = sessionStorage.getItem('immo_helper_search_command');
         if (savedSearch) searchStr = savedSearch;
@@ -33,7 +34,6 @@
             }
         });
 
-        // Deduplicate
         upgrades = [...new Set(upgrades)];
         downgrades = [...new Set(downgrades)];
 
@@ -45,11 +45,12 @@
 
     if (upgrades.length === 0 && downgrades.length === 0) {
         localStorage.removeItem('immo_cmd_running');
+        localStorage.removeItem('immo_cmd_paused');
         window.immoCmdLoaded = false;
         return;
     }
 
-    // 3. UI Styles (550px Wide, Dark Mode)
+    // 3. UI Styles (550px Wide, Professional Dark Mode)
     const style = document.createElement('style');
     style.textContent = `
         #immo-cmd-center {
@@ -66,12 +67,18 @@
         .immo-id-tag { display: inline-block; background: #252525; color: #fff; padding: 5px 12px; border-radius: 4px; font-family: monospace; font-size: 13px; margin: 0 6px 6px 0; border: 1px solid #444; }
         .tag-up { border-left: 3px solid #62c462; color: #a3dca3; }
         .tag-down { border-left: 3px solid #ef4444; color: #fca5a5; }
-        #immo-apply-all {
-            width: 100%; padding: 18px; background: #2e7d32; color: white;
-            border: none; border-radius: 0 0 12px 12px; font-weight: 800;
-            font-size: 15px; cursor: pointer; transition: all 0.2s; text-transform: uppercase;
-        }
+        
+        #immo-controls { display: flex; width: 100%; border-top: 1px solid #333; }
+        .immo-ctrl-btn { flex: 1; padding: 18px; border: none; font-weight: 800; font-size: 14px; cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 1px; }
+        
+        #immo-apply-all { background: #2e7d32; color: white; }
+        #immo-apply-all:hover { background: #388e3c; }
         #immo-apply-all:disabled { background: #333; color: #666; cursor: wait; }
+        
+        #immo-pause-btn { background: #333; color: #fff; border-left: 1px solid #444; display: none; }
+        #immo-pause-btn:hover { background: #444; }
+        #immo-pause-btn.active { background: #92400e; color: #fff; }
+
         #immo-status-bar { font-size: 12px; color: #62c462; text-align: center; margin-top: 10px; font-weight: 600; min-height: 15px; }
     `;
     document.head.appendChild(style);
@@ -79,26 +86,35 @@
     const cmd = document.createElement('div');
     cmd.id = 'immo-cmd-center';
     
-    let upHtml = upgrades.length > 0 ? `<div style="margin-bottom:20px"><div class="immo-section-title">🚀 Pending Upgrades (${upgrades.length})</div><div>${upgrades.map(id => `<span class="immo-id-tag tag-up">${id}</span>`).join('')}</div></div>` : '';
-    let downHtml = downgrades.length > 0 ? `<div style="margin-bottom:20px"><div class="immo-section-title">📉 Pending Downgrades (${downgrades.length})</div><div>${downgrades.map(id => `<span class="immo-id-tag tag-down">${id}</span>`).join('')}</div></div>` : '';
+    let upHtml = upgrades.length > 0 ? `<div style="margin-bottom:20px"><div class="immo-section-title">Pending Upgrades (${upgrades.length})</div><div>${upgrades.map(id => `<span class="immo-id-tag tag-up">${id}</span>`).join('')}</div></div>` : '';
+    let downHtml = downgrades.length > 0 ? `<div style="margin-bottom:20px"><div class="immo-section-title">Pending Downgrades (${downgrades.length})</div><div>${downgrades.map(id => `<span class="immo-id-tag tag-down">${id}</span>`).join('')}</div></div>` : '';
 
     cmd.innerHTML = `
-        <div id="immo-cmd-header"><strong>⚡ Smart Auto-Format</strong><span id="immo-cmd-close">&#x2715;</span></div>
+        <div id="immo-cmd-header"><strong>Format Command Center</strong><span id="immo-cmd-close">&#x2715;</span></div>
         <div id="immo-cmd-content">${upHtml}${downHtml}<div id="immo-status-bar">Ready</div></div>
-        <button id="immo-apply-all">${isAutoRunning ? 'Scanning...' : 'Start Auto-Processing'}</button>
+        <div id="immo-controls">
+            <button id="immo-apply-all" class="immo-ctrl-btn">Start Processing</button>
+            <button id="immo-pause-btn" class="immo-ctrl-btn">Pause</button>
+        </div>
     `;
     document.body.appendChild(cmd);
 
-    // 4. Automation Logic
     const applyBtn = document.getElementById('immo-apply-all');
+    const pauseBtn = document.getElementById('immo-pause-btn');
     const statusBar = document.getElementById('immo-status-bar');
 
     async function runAutoCycle() {
+        if (localStorage.getItem('immo_cmd_paused') === 'true') {
+            statusBar.innerText = "Paused";
+            return;
+        }
+
         applyBtn.disabled = true;
+        pauseBtn.style.display = "block";
         let foundOnThisPage = false;
 
-        // Check for Upgrades
         for (let i = upgrades.length - 1; i >= 0; i--) {
+            if (localStorage.getItem('immo_cmd_paused') === 'true') return;
             const id = upgrades[i];
             const btn = document.querySelector(`a[onclick*="chListingFeat('${id}'"][onclick*="2)"]`);
             if (btn) {
@@ -106,12 +122,12 @@
                 btn.click();
                 upgrades.splice(i, 1);
                 foundOnThisPage = true;
-                await new Promise(r => setTimeout(r, 1200));
+                await new Promise(r => setTimeout(r, 1500));
             }
         }
 
-        // Check for Downgrades
         for (let i = downgrades.length - 1; i >= 0; i--) {
+            if (localStorage.getItem('immo_cmd_paused') === 'true') return;
             const id = downgrades[i];
             const btn = document.querySelector(`a[onclick*="chListingFeat('${id}'"][onclick*="0)"]`);
             if (btn) {
@@ -119,52 +135,77 @@
                 btn.click();
                 downgrades.splice(i, 1);
                 foundOnThisPage = true;
-                await new Promise(r => setTimeout(r, 1200));
+                await new Promise(r => setTimeout(r, 1500));
             }
         }
 
-        // Save updated lists
         localStorage.setItem('immo_cmd_up', JSON.stringify(upgrades));
         localStorage.setItem('immo_cmd_down', JSON.stringify(downgrades));
 
         if (upgrades.length === 0 && downgrades.length === 0) {
-            statusBar.innerText = "✓ All tasks complete!";
-            applyBtn.innerHTML = "FINISHED";
+            statusBar.innerText = "All tasks complete";
+            applyBtn.innerHTML = "Finished";
+            applyBtn.style.background = "#444";
             localStorage.removeItem('immo_cmd_running');
-            setTimeout(() => cmd.remove(), 2000);
+            localStorage.removeItem('immo_cmd_paused');
+            setTimeout(() => cmd.remove(), 2500);
             return;
         }
 
-        // If we processed everything on this page but more remain elsewhere, go to next page
         statusBar.innerText = "Searching next page...";
         const currentPageMatch = window.location.pathname.match(/index(\d+)\.html/);
         const nextPageIndex = currentPageMatch ? parseInt(currentPageMatch[1]) + 1 : 2;
         
-        // Safety: Don't go past page 15
-        if (nextPageIndex > 15) {
-            statusBar.innerText = "Reached page limit. Stopping.";
+        if (nextPageIndex > 20) {
+            statusBar.innerText = "Page limit reached";
             localStorage.removeItem('immo_cmd_running');
             return;
         }
 
         setTimeout(() => {
+            if (localStorage.getItem('immo_cmd_paused') === 'true') return;
             window.location.href = window.location.pathname.replace(/index\d*\.html|$/, `index${nextPageIndex}.html`);
-        }, 1500);
+        }, 2000);
     }
 
     applyBtn.onclick = () => {
         localStorage.setItem('immo_cmd_running', 'true');
+        localStorage.setItem('immo_cmd_paused', 'false');
+        applyBtn.innerText = "Processing...";
         runAutoCycle();
     };
 
-    // Auto-resume if we just redirected
+    pauseBtn.onclick = () => {
+        const currentlyPaused = localStorage.getItem('immo_cmd_paused') === 'true';
+        if (currentlyPaused) {
+            localStorage.setItem('immo_cmd_paused', 'false');
+            pauseBtn.innerText = "Pause";
+            pauseBtn.classList.remove('active');
+            runAutoCycle();
+        } else {
+            localStorage.setItem('immo_cmd_paused', 'true');
+            pauseBtn.innerText = "Resume";
+            pauseBtn.classList.add('active');
+            statusBar.innerText = "Paused";
+        }
+    };
+
     if (isAutoRunning) {
-        setTimeout(runAutoCycle, 2000);
+        applyBtn.disabled = true;
+        applyBtn.innerText = "Processing...";
+        pauseBtn.style.display = "block";
+        if (isPaused) {
+            pauseBtn.innerText = "Resume";
+            pauseBtn.classList.add('active');
+            statusBar.innerText = "Paused";
+        } else {
+            setTimeout(runAutoCycle, 2500);
+        }
     }
 
-    // Dragging / Closing
     document.getElementById('immo-cmd-close').onclick = () => {
         localStorage.removeItem('immo_cmd_running');
+        localStorage.removeItem('immo_cmd_paused');
         localStorage.removeItem('immo_cmd_up');
         localStorage.removeItem('immo_cmd_down');
         cmd.remove();
