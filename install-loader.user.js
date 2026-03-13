@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Listing page helper (Loader)
 // @namespace    http://tampermonkey.net/
-// @version      2.0
-// @description  Silently fetches and runs the Find and Highlight scripts from GitHub
+// @version      2.1
+// @description  Silently fetches and runs the Find and Format scripts from GitHub
 // @match        https://pro.immotop.lu/*
 // @match        https://www.athome.lu/pro/v2/listings*
 // @match        https://www.wortimmo.lu/fr/annonces*
@@ -19,13 +19,13 @@
     if (searchParams.includes('find=') || searchParams.includes('downgrade=') || searchParams.includes('upgrade=')) {
         // Save separately so each script can consume and destroy its own key
         sessionStorage.setItem('immo_helper_search_find', searchParams);
-        sessionStorage.setItem('immo_helper_search_highlight', searchParams);
+        sessionStorage.setItem('immo_helper_search_format', searchParams);
     }
 
     // UPDATE THESE URLS to match your final GitHub file names
     const scriptsToLoad = [
         'https://raw.githubusercontent.com/nexvia-connect/listing-page-helper/main/listing-find-helper.js',
-        'https://raw.githubusercontent.com/nexvia-connect/listing-page-helper/main/listing-highlight-helper.js'
+        'https://raw.githubusercontent.com/nexvia-connect/listing-page-helper/main/listing-page-format-command.js'
     ];
 
     scriptsToLoad.forEach(url => {
