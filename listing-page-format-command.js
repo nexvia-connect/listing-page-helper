@@ -1,152 +1,140 @@
-// Github URL: listing-page-format-command.js
 (function() {
     'use strict';
 
-    if (window.immoCmdLoaded) return;
-    window.immoCmdLoaded = true;
+    if (window.immoSyncLoaded) return;
+    window.immoSyncLoaded = true;
 
-    // 1. Persistent State
-    let upgrades = JSON.parse(localStorage.getItem('immo_cmd_up') || "[]");
-    let downgrades = JSON.parse(localStorage.getItem('immo_cmd_down') || "[]");
-    let isRunning = localStorage.getItem('immo_cmd_running') === 'true';
-    let isPaused = false;
+    // --- CONFIGURATION ---
+    // These are the public IDs (e.g., from the URL 1891585). 
+    // The script will automatically find the internal data-id (e.g., 28692605).
+    let targetPublicIds = JSON.parse(localStorage.getItem('immo_targets') || "[]");
+    const MAX_PAGES = 15;
+    const DELAY = 1000; 
 
-    // 2. Initial Setup (Parse URL)
-    if (!isRunning) {
-        const params = new URLSearchParams(window.location.search);
-        const ups = params.get('upgrade');
-        const downs = params.get('downgrade');
-        
-        if (ups) upgrades = [...new Set(ups.split(','))];
-        if (downs) downgrades = [...new Set(downs.split(','))];
-        
-        // Handle your custom &123&456 format if needed
-        window.location.search.split('&').forEach(p => {
-            if (/^\d{6,9}$/.test(p)) upgrades.push(p);
-        });
-
-        if (upgrades.length || downgrades.length) {
-            localStorage.setItem('immo_cmd_up', JSON.stringify(upgrades));
-            localStorage.setItem('immo_cmd_down', JSON.stringify(downgrades));
-        }
+    // 1. Initial Setup: Grab IDs from URL if present
+    const params = new URLSearchParams(window.location.search);
+    const urlUps = params.get('upgrade');
+    if (urlUps) {
+        targetPublicIds = [...new Set(urlUps.split(','))];
+        localStorage.setItem('immo_targets', JSON.stringify(targetPublicIds));
     }
 
-    if (!upgrades.length && !downgrades.length) {
-        window.immoCmdLoaded = false;
-        return;
-    }
-
-    // 3. UI (550px Wide, Professional Dark)
+    // 2. UI Injection
     const style = document.createElement('style');
     style.textContent = `
-        #immo-cmd-center {
-            position: fixed; top: 100px; right: 20px; z-index: 100000;
-            background: #121212; border: 1px solid #333; border-radius: 8px;
-            width: 550px; font-family: system-ui, sans-serif; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-            color: #eee; overflow: hidden;
+        #immo-sync-panel {
+            position: fixed; bottom: 20px; right: 20px; z-index: 10000;
+            width: 380px; background: #111; color: #fff; border-radius: 12px;
+            font-family: system-ui, sans-serif; box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+            border: 1px solid #333; overflow: hidden;
         }
-        #immo-cmd-header { padding: 12px 16px; background: #1a1a1a; border-bottom: 1px solid #333; cursor: grab; display: flex; justify-content: space-between; align-items: center; }
-        #immo-status { padding: 20px; text-align: center; font-size: 14px; color: #62c462; font-weight: bold; border-bottom: 1px solid #222; }
-        .immo-btn-row { display: flex; }
-        .immo-btn { flex: 1; padding: 15px; border: none; font-weight: bold; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; }
-        #btn-start { background: #2e7d32; color: white; }
-        #btn-pause { background: #333; color: white; border-left: 1px solid #444; }
-        #immo-iframe-container { height: 0; width: 0; visibility: hidden; position: absolute; }
+        #immo-header { padding: 15px; background: #1a1a1a; display: flex; justify-content: space-between; border-bottom: 1px solid #333; }
+        #immo-log { height: 250px; overflow-y: auto; background: #000; padding: 10px; font-size: 11px; color: #bbb; line-height: 1.4; }
+        .log-entry { margin-bottom: 4px; border-left: 2px solid #444; padding-left: 8px; }
+        .log-up { color: #62c462; border-color: #62c462; }
+        .log-down { color: #ff6b6b; border-color: #ff6b6b; }
+        .immo-footer { padding: 10px; background: #1a1a1a; }
+        #btn-sync { width: 100%; padding: 12px; background: #2e7d32; border: none; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; }
+        #btn-sync:disabled { background: #444; cursor: not-allowed; }
     `;
     document.head.appendChild(style);
 
-    const container = document.createElement('div');
-    container.id = 'immo-cmd-center';
-    container.innerHTML = `
-        <div id="immo-cmd-header"><strong>Action Center</strong><span id="immo-close" style="cursor:pointer">✕</span></div>
-        <div id="immo-status">Ready to process ${upgrades.length + downgrades.length} listings.</div>
-        <div class="immo-btn-row">
-            <button id="btn-start" class="immo-btn">Start Automation</button>
-            <button id="btn-pause" class="immo-btn">Pause</button>
-        </div>
-        <div id="immo-iframe-container"></div>
+    const panel = document.createElement('div');
+    panel.id = 'immo-sync-panel';
+    panel.innerHTML = `
+        <div id="immo-header"><b>ImmoSync Pro</b> <span id="immo-close" style="cursor:pointer">✕</span></div>
+        <div id="immo-log"><div>Target IDs: ${targetPublicIds.length > 0 ? targetPublicIds.join(', ') : 'None detected. Add ?upgrade=ID,ID to URL.'}</div></div>
+        <div class="immo-footer"><button id="btn-sync">START GLOBAL SYNC</button></div>
     `;
-    document.body.appendChild(container);
+    document.body.appendChild(panel);
 
-    // 4. The Processing Engine
-    async function processList() {
-        const status = document.getElementById('immo-status');
+    const logBox = document.getElementById('immo-log');
+    const addLog = (msg, type = '') => {
+        const div = document.createElement('div');
+        div.className = `log-entry ${type ? 'log-' + type : ''}`;
+        div.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        logBox.prepend(div);
+    };
+
+    // 3. API & Engine
+    async function sendCommand(internalId, pName) {
+        const body = `h_ajax=1&pName=${pName}&pArgs%5B0%5D=${internalId}`;
+        try {
+            await fetch(window.location.href, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", "X-Requested-With": "XMLHttpRequest" },
+                body: body
+            });
+            return true;
+        } catch (e) { return false; }
+    }
+
+    async function sync() {
+        if (targetPublicIds.length === 0) return addLog("No target IDs found!", "down");
         
-        while (upgrades.length > 0 || downgrades.length > 0) {
-            if (isPaused) return;
+        const btn = document.getElementById('btn-sync');
+        btn.disabled = true;
+        addLog("Starting background scan...", "up");
 
-            const isUp = upgrades.length > 0;
-            const id = isUp ? upgrades[0] : downgrades[0];
-            const targetVal = isUp ? 2 : 0;
-            const modeText = isUp ? "Upgrading" : "Downgrading";
+        let foundTargets = [];
+        let currentlyFirstButNotTarget = [];
 
-            status.innerText = `${modeText} ${id}...`;
+        // Scrape Pages
+        for (let i = 1; i <= MAX_PAGES; i++) {
+            addLog(`Scanning page ${i}...`);
+            const res = await fetch(`https://pro.immotop.lu/my-listings/index${i}.html`);
+            const html = await res.text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const listings = doc.querySelectorAll('.search-agency-item-container');
 
-            // Look for button on current page
-            let btn = document.querySelector(`a[onclick*="chListingFeat('${id}'"][onclick*=", ${targetVal})"]`);
-            
-            if (btn) {
-                btn.click();
-                if (isUp) upgrades.shift(); else downgrades.shift();
-                localStorage.setItem('immo_cmd_up', JSON.stringify(upgrades));
-                localStorage.setItem('immo_cmd_down', JSON.stringify(downgrades));
-                await new Promise(r => setTimeout(r, 1500)); // Wait for server to breath
-            } else {
-                // If not found, we must go to the next page
-                status.innerText = `ID ${id} not found on this page. Moving to next...`;
-                const nextUrl = getNextPageUrl();
-                if (nextUrl) {
-                    localStorage.setItem('immo_cmd_running', 'true');
-                    window.location.href = nextUrl;
-                    return; // Exit script, will resume on reload
-                } else {
-                    status.innerText = "Error: Could not find listing on any page.";
-                    stop();
-                    return;
+            if (listings.length === 0) break;
+
+            listings.forEach(row => {
+                const internalId = row.getAttribute('data-id');
+                const publicUrl = row.querySelector('a.domingo')?.href || "";
+                const isFirst = row.querySelector('button[data-role="featured"]')?.classList.contains('active');
+                
+                const isTarget = targetPublicIds.some(id => internalId.includes(id) || publicUrl.includes(id));
+
+                if (isTarget && !isFirst) {
+                    foundTargets.push({ internalId, id: internalId });
+                } else if (!isTarget && isFirst) {
+                    currentlyFirstButNotTarget.push({ internalId, id: internalId });
                 }
+            });
+        }
+
+        // Action: Downgrade first to free up slots
+        if (currentlyFirstButNotTarget.length > 0) {
+            addLog(`Freeing up ${currentlyFirstButNotTarget.length} slots...`, "down");
+            for (const item of currentlyFirstButNotTarget) {
+                addLog(`Downgrading ${item.id}...`);
+                await sendCommand(item.internalId, 'chListingFeat');
+                await new Promise(r => setTimeout(r, DELAY));
             }
         }
-        
-        status.innerText = "All actions complete.";
-        stop();
-    }
 
-    function getNextPageUrl() {
-        const path = window.location.pathname;
-        const match = path.match(/index(\d+)\.html/);
-        const current = match ? parseInt(match[1]) : 1;
-        if (current >= 15) return null; // Safety cap
-        return path.replace(/index\d*\.html|$/, `index${current + 1}.html`);
-    }
+        // Action: Upgrade targets
+        if (foundTargets.length > 0) {
+            addLog(`Applying ${foundTargets.length} upgrades...`, "up");
+            for (const item of foundTargets) {
+                addLog(`Upgrading ${item.id}...`);
+                await sendCommand(item.internalId, 'chListingFeat');
+                // Refresh heart-beat
+                await sendCommand(item.internalId, 'vis_ad_refresh');
+                await new Promise(r => setTimeout(r, DELAY));
+            }
+        }
 
-    function stop() {
-        localStorage.removeItem('immo_cmd_up');
-        localStorage.removeItem('immo_cmd_down');
-        localStorage.removeItem('immo_cmd_running');
+        addLog("Sync complete! Reloading...", "up");
         setTimeout(() => window.location.reload(), 2000);
     }
 
-    // 5. Controls
-    document.getElementById('btn-start').onclick = function() {
-        this.disabled = true;
-        this.innerText = "Processing...";
-        processList();
-    };
-
-    document.getElementById('btn-pause').onclick = function() {
-        isPaused = !isPaused;
-        this.innerText = isPaused ? "Resume" : "Pause";
-        if (!isPaused) processList();
-    };
-
+    // 4. Events
+    document.getElementById('btn-sync').onclick = sync;
     document.getElementById('immo-close').onclick = () => {
-        localStorage.clear();
-        container.remove();
+        localStorage.removeItem('immo_targets');
+        panel.remove();
     };
 
-    if (isRunning) {
-        document.getElementById('btn-start').disabled = true;
-        document.getElementById('btn-start').innerText = "Processing...";
-        setTimeout(processList, 2000);
-    }
 })();
