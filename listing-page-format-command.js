@@ -53,13 +53,20 @@
         .immo-id-tag { display: inline-block; background: #252525; color: #fff; padding: 5px 12px; border-radius: 4px; font-family: monospace; font-size: 13px; margin: 0 6px 6px 0; border: 1px solid #444; }
         .tag-up { border-left: 3px solid #62c462; color: #a3dca3; }
         .tag-down { border-left: 3px solid #ef4444; color: #fca5a5; }
+        
+        /* Log Section Styles */
+        #immo-log-toggle { background: #222; padding: 8px 20px; color: #aaa; font-size: 10px; cursor: pointer; display: flex; justify-content: space-between; border-top: 1px solid #333; border-bottom: 1px solid #333; }
+        #immo-log-toggle:hover { color: #fff; background: #2a2a2a; }
+        #immo-log-body { background: #000; color: #0f0; font-family: monospace; font-size: 10px; padding: 10px; height: 120px; overflow-y: auto; display: none; }
+        #immo-copy-logs { background: #444; color: #fff; border: none; padding: 2px 8px; border-radius: 3px; font-size: 9px; cursor: pointer; }
+        #immo-copy-logs:hover { background: #666; }
+
         #immo-apply-all {
             width: 100%; padding: 18px; background: #2e7d32; color: white;
             border: none; border-radius: 0 0 12px 12px; font-weight: 800;
             font-size: 15px; cursor: pointer; transition: all 0.2s; text-transform: uppercase;
         }
         #immo-apply-all:hover { background: #388e3c; }
-        #immo-apply-all:disabled { background: #333; color: #666; cursor: not-allowed; }
         #immo-status-bar { font-size: 12px; color: #62c462; text-align: center; margin-top: 10px; font-weight: 600; min-height: 15px; }
     `;
     document.head.appendChild(style);
@@ -73,9 +80,33 @@
     cmd.innerHTML = `
         <div id="immo-cmd-header"><strong>⚡ Format Command Center</strong><span id="immo-cmd-close">&#x2715;</span></div>
         <div id="immo-cmd-content">${upHtml}${downHtml}<div id="immo-status-bar"></div></div>
+        <div id="immo-log-toggle">
+            <span>DEBUG LOGS <span id="immo-arrow">▼</span></span>
+            <button id="immo-copy-logs">COPY LOGS</button>
+        </div>
+        <div id="immo-log-body">-- LOG INITIALIZED --\n</div>
         <button id="immo-apply-all">Apply All Actions</button>
     `;
     document.body.appendChild(cmd);
+
+    // Collapsible Logic
+    const logToggle = document.getElementById('immo-log-toggle');
+    const logBody = document.getElementById('immo-log-body');
+    const arrow = document.getElementById('immo-arrow');
+    logToggle.onclick = (e) => {
+        if (e.target.id === 'immo-copy-logs') return; // Don't collapse when copying
+        const isHidden = logBody.style.display === 'none' || logBody.style.display === '';
+        logBody.style.display = isHidden ? 'block' : 'none';
+        arrow.innerText = isHidden ? '▲' : '▼';
+    };
+
+    // Copy Logs Logic
+    document.getElementById('immo-copy-logs').onclick = () => {
+        navigator.clipboard.writeText(logBody.innerText);
+        const btn = document.getElementById('immo-copy-logs');
+        btn.innerText = 'COPIED!';
+        setTimeout(() => btn.innerText = 'COPY LOGS', 2000);
+    };
 
     const applyBtn = document.getElementById('immo-apply-all');
     applyBtn.onclick = () => {
@@ -87,24 +118,31 @@
                 const ups = [${upgrades.map(id => '"' + id + '"').join(',')}];
                 const downs = [${downgrades.map(id => '"' + id + '"').join(',')}];
                 const setStatus = (t) => { const s = document.getElementById('immo-status-bar'); if(s) s.innerText = t; };
+                const log = (msg) => { const b = document.getElementById('immo-log-body'); if(b) { b.innerText += msg + "\\n"; b.scrollTop = b.scrollHeight; } };
 
-                // Use the page's own internal function call
+                async function safeCall(id, val, mode) {
+                    log("[" + mode + "] Sending ID: " + id + " (Val: " + val + ")");
+                    if (typeof xajax_chListingFeat === 'function') {
+                        try {
+                            xajax_chListingFeat(id, val);
+                            log("   -> Triggered xajax_chListingFeat");
+                        } catch(e) { log("   !! XAJAX ERROR: " + e.message); }
+                    } else { log("   !! CRITICAL: xajax_chListingFeat function not found"); }
+                    await new Promise(r => setTimeout(r, 800));
+                }
+
                 for (const id of ups) {
                     setStatus("Upgrading " + id + "...");
-                    if (typeof xajax_chListingFeat === 'function') {
-                        xajax_chListingFeat(id, 2); 
-                    }
-                    await new Promise(r => setTimeout(r, 600));
+                    await safeCall(id, 2, "UPGRADE");
                 }
                 for (const id of downs) {
                     setStatus("Downgrading " + id + "...");
-                    if (typeof xajax_chListingFeat === 'function') {
-                        xajax_chListingFeat(id, 0);
-                    }
-                    await new Promise(r => setTimeout(r, 600));
+                    await safeCall(id, 0, "DOWNGRADE");
                 }
-                setStatus("Complete! Reloading...");
-                setTimeout(() => window.location.reload(), 1000);
+
+                setStatus("Processing Complete!");
+                log("-- ALL ACTIONS FIRED. RELOADING IN 2S --");
+                setTimeout(() => window.location.reload(), 2000);
             })();
         `;
         const s = document.createElement('script'); s.textContent = scriptCode;
