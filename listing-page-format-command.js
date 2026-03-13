@@ -12,9 +12,8 @@
     const savedSearch = sessionStorage.getItem('immo_helper_search_command');
     if (savedSearch) { searchStr = savedSearch; }
 
-    // Improved Parser to handle ?upgrade=111&222&333&downgrade=444
     const queryParams = searchStr.replace('?', '').split('&');
-    let currentMode = 'upgrade'; // Default mode
+    let currentMode = 'upgrade';
 
     queryParams.forEach(param => {
         const decoded = decodeURIComponent(param);
@@ -83,6 +82,7 @@
         applyBtn.disabled = true;
         applyBtn.innerHTML = `In Progress...`;
         
+        // Use a self-executing script to hit the page context
         const scriptCode = `
             (async function() {
                 const ups = [${upgrades.map(id => '"' + id + '"').join(',')}];
@@ -90,17 +90,43 @@
                 const url = window.location.origin + window.location.pathname;
                 const setStatus = (t) => { const s = document.getElementById('immo-status-bar'); if(s) s.innerText = t; };
 
+                // Processing Upgrades (Featured = 2)
                 for (const id of ups) {
                     setStatus("Upgrading " + id + "...");
-                    await jQuery.ajax({ type: "POST", url: url, data: "h_ajax=1&pName=chListingFeat&pArgs[0]=" + id, headers: { "X-Requested-With": "XMLHttpRequest" } });
-                    await jQuery.ajax({ type: "POST", url: url, data: "h_ajax=1&pName=vis_ad_refresh&pArgs[0]=" + id, headers: { "X-Requested-With": "XMLHttpRequest" } });
+                    await jQuery.ajax({ 
+                        type: "POST", 
+                        url: url, 
+                        data: "h_ajax=1&pName=chListingFeat&pArgs[0]=" + id + "&pArgs[1]=2", 
+                        headers: { "X-Requested-With": "XMLHttpRequest" } 
+                    });
+                    await jQuery.ajax({ 
+                        type: "POST", 
+                        url: url, 
+                        data: "h_ajax=1&pName=vis_ad_refresh&pArgs[0]=" + id, 
+                        headers: { "X-Requested-With": "XMLHttpRequest" } 
+                    });
+                    await new Promise(r => setTimeout(r, 400));
                 }
+
+                // Processing Downgrades (Featured = 0)
                 for (const id of downs) {
                     setStatus("Downgrading " + id + "...");
-                    await jQuery.ajax({ type: "POST", url: url, data: "h_ajax=1&pName=chListingFeat&pArgs[0]=" + id, headers: { "X-Requested-With": "XMLHttpRequest" } });
-                    await jQuery.ajax({ type: "POST", url: url, data: "h_ajax=1&pName=vis_ad_refresh&pArgs[0]=" + id, headers: { "X-Requested-With": "XMLHttpRequest" } });
+                    await jQuery.ajax({ 
+                        type: "POST", 
+                        url: url, 
+                        data: "h_ajax=1&pName=chListingFeat&pArgs[0]=" + id + "&pArgs[1]=0", 
+                        headers: { "X-Requested-With": "XMLHttpRequest" } 
+                    });
+                    await jQuery.ajax({ 
+                        type: "POST", 
+                        url: url, 
+                        data: "h_ajax=1&pName=vis_ad_refresh&pArgs[0]=" + id, 
+                        headers: { "X-Requested-With": "XMLHttpRequest" } 
+                    });
+                    await new Promise(r => setTimeout(r, 400));
                 }
-                setStatus("Complete! Reloading...");
+
+                setStatus("Success! Refreshing...");
                 setTimeout(() => window.location.reload(), 1000);
             })();
         `;
