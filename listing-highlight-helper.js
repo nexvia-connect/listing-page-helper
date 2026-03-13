@@ -9,6 +9,7 @@
 
     let targetIds = [];
     let downgradeId = null;
+    let hasScannedPagination = false; // Prevent infinite background fetches
 
     const isImmotop = window.location.hostname.includes('immotop.lu');
     const isAthome = window.location.hostname.includes('athome.lu');
@@ -26,12 +27,10 @@
         const queryParams = searchStr.replace('?', '').split('&');
         let parsedNewIds = [];
 
-        // Parse: ?upgrade=1234&5678&9101&downgrade=2233
         queryParams.forEach(param => {
             if (param.startsWith('upgrade=')) {
                 parsedNewIds.push(param.split('=')[1]);
             } else if (/^\d{6,8}$/.test(param)) { 
-                // Any standalone number parameter is treated as an upgrade target
                 parsedNewIds.push(param);
             }
         });
@@ -39,6 +38,7 @@
         if (parsedNewIds.length > 0) {
             targetIds = parsedNewIds;
             sessionStorage.setItem('immotop_target_ids', JSON.stringify(targetIds));
+            hasScannedPagination = false; // Reset scan state if new IDs are added
         } else {
             const stored = sessionStorage.getItem('immotop_target_ids');
             if (stored) targetIds = JSON.parse(stored);
@@ -48,6 +48,7 @@
         if (downgradeParam) {
             downgradeId = downgradeParam.split('=')[1];
             sessionStorage.setItem('immotop_downgrade_id', downgradeId);
+            hasScannedPagination = false; // Reset scan state
         } else if (parsedNewIds.length > 0) {
             sessionStorage.removeItem('immotop_downgrade_id');
             downgradeId = null;
@@ -56,7 +57,6 @@
             if (storedDown) downgradeId = storedDown;
         }
         
-        // Clear if we navigate to a raw Find link
         if (queryParams.some(p => p.startsWith('find=')) && parsedNewIds.length === 0 && !downgradeParam) {
             targetIds = [];
             downgradeId = null;
@@ -181,9 +181,111 @@
         });
     }
 
+    // --- NEW: Background Scanner Logic ---
+    async function scanPaginationPages() {
+        if (!isImmotop || hasScannedPagination) return;
+        if (targetIds.length === 0 && !downgradeId) return;
+
+        const paginatorLinks = Array.from(document.querySelectorAll('#paginator a[href]'));
+        if (paginatorLinks.length === 0) return;
+
+        hasScannedPagination = true; // Mark as scanned immediately to prevent re-triggering
+
+        // Collect unique URLs, ignoring current page indicators
+        const urlsToScan = new Set();
+        const currentUrlBase = window.location.pathname.split('/').pop();
+
+        paginatorLinks.forEach(link => {
+            const hrefStr = link.getAttribute('href');
+            if (hrefStr && hrefStr.includes('index') && 
+                !link.classList.contains('current') && 
+                !link.parentElement.classList.contains('is_current') &&
+                !hrefStr.includes(currentUrlBase)) {
+                urlsToScan.add(link.href);
+            }
+        });
+
+        for (const url of urlsToScan) {
+            try {
+                const response = await fetch(url);
+                const html = await response.text();
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                
+                let pageNeedsFirstAction = false;
+                let pageNeedsFirstDone = false;
+                let pageNeedsDownAction = false;
+                let pageNeedsDownDone = false;
+
+                const containers = Array.from(doc.querySelectorAll('.search-agency-item-container'));
+                
+                containers.forEach(container => {
+                    let adId = null;
+                    const link = container.querySelector('a[href*="/annonces/"]');
+                    if (link) {
+                        const match = link.href.match(/\/annonces\/(\d+)/);
+                        if (match && match[1]) adId = match[1];
+                    }
+                    const nativeBadge = container.querySelector('.ad-badge.first');
+
+                    if (adId) {
+                        if (targetIds.includes(adId)) {
+                            if (nativeBadge) pageNeedsFirstDone = true;
+                            else pageNeedsFirstAction = true;
+                        } else if (adId === downgradeId) {
+                            if (!nativeBadge) pageNeedsDownDone = true;
+                            else pageNeedsDownAction = true;
+                        }
+                    }
+                });
+
+                // Prioritize "Action Needed" over "Done" styles if a page has multiple targets
+                let colorToApply = null;
+                let isGlow = false;
+
+                if (pageNeedsFirstAction) {
+                    colorToApply = COLOR_FIRST;
+                    isGlow = true;
+                } else if (pageNeedsDownAction) {
+                    colorToApply = COLOR_DOWNGRADE;
+                    isGlow = true;
+                } else if (pageNeedsFirstDone) {
+                    colorToApply = COLOR_FIRST_DONE;
+                    isGlow = false;
+                } else if (pageNeedsDownDone) {
+                    colorToApply = COLOR_DOWNGRADE_DONE;
+                    isGlow = false;
+                }
+
+                if (colorToApply) {
+                    // Find all links in the paginator pointing to this specific URL
+                    const matchingLinks = document.querySelectorAll(`#paginator a[href$="${new URL(url).pathname.split('/').pop()}"]`);
+                    
+                    matchingLinks.forEach(link => {
+                        // Apply styling to the <li> wrapper if it exists (for pg_wide), otherwise the <a> itself (for pg_small)
+                        const targetToStyle = link.closest('li') || link; 
+                        
+                        targetToStyle.style.cssText = `
+                            background-color: ${colorToApply} !important;
+                            border: 1px solid ${colorToApply} !important;
+                            border-radius: 4px;
+                            transition: all 0.3s ease;
+                            ${isGlow ? `box-shadow: 0 0 15px ${colorToApply} !important; z-index: 10; position: relative;` : ''}
+                        `;
+                        link.style.cssText = `color: #fff !important; font-weight: bold !important;`;
+                    });
+                }
+
+            } catch (err) {
+                console.error('Immotop Helper: Error fetching page for pagination highlights', err);
+            }
+        }
+    }
+    // --- END NEW LOGIC ---
+
     function initApp() {
         syncState();
         enforceHighlights();
+        scanPaginationPages(); // Trigger background scan on load
 
         let mutTimeout;
         const observer = new MutationObserver(() => {
@@ -204,6 +306,9 @@
                 lastUrl = location.href;
                 syncState();
                 enforceHighlights();
+                // If URL changes dynamically via pushState, re-scan pagination just in case
+                hasScannedPagination = false;
+                scanPaginationPages(); 
             }
         }, 500);
     }
