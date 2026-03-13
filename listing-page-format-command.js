@@ -5,23 +5,28 @@
     if (window.immoCmdLoaded) return;
     window.immoCmdLoaded = true;
 
-    // 1. Persistent State (Your original logic)
+    // --- 1. PERSISTENT STATE & TRADITIONAL PARSING ---
     const STORAGE_KEY = 'immo_sync_logs';
+    
     function getIdsFromUrl() {
-        const matches = window.location.search.match(/\d{7,8}/g);
-        return matches ? [...new Set(matches)] : [];
+        const params = new URLSearchParams(window.location.search);
+        const upgradeString = params.get('upgrade') || "";
+        // Split by comma and filter out any empty strings or non-ID-like text
+        return upgradeString.split(',').filter(id => id.trim().length >= 7);
     }
 
     let upgrades = JSON.parse(localStorage.getItem('immo_cmd_up') || "[]");
     const urlIds = getIdsFromUrl();
+    
+    // If IDs are found in the URL, they take priority
     if (urlIds.length > 0) {
-        upgrades = urlIds;
+        upgrades = urlIds.map(id => id.trim());
         localStorage.setItem('immo_cmd_up', JSON.stringify(upgrades));
     }
 
-    const DELAY = 1000;
+    const DELAY = 1000; // 1 second between server calls
 
-    // 2. UI (Your original 550px Wide, Professional Dark)
+    // --- 2. UI (Original 550px Wide, Professional Dark) ---
     const style = document.createElement('style');
     style.textContent = `
         #immo-cmd-center {
@@ -50,7 +55,7 @@
     container.innerHTML = `
         <div id="immo-cmd-header"><strong>Action Center</strong><span id="immo-close" style="cursor:pointer">✕</span></div>
         <div id="immo-id-container"></div>
-        <div id="immo-status">Ready to process ${upgrades.length} listings.</div>
+        <div id="immo-status">Ready to process ${upgrades.length} target IDs.</div>
         <div id="immo-log"></div>
         <div class="immo-btn-row">
             <button id="btn-start" class="immo-btn">Apply Formats</button>
@@ -62,7 +67,7 @@
     const logBox = document.getElementById('immo-log');
     const idBox = document.getElementById('immo-id-container');
 
-    // Add those cool little squares for IDs
+    // Display the cool little squares for each ID
     upgrades.forEach(id => {
         const span = document.createElement('span');
         span.className = 'id-badge';
@@ -85,9 +90,10 @@
         logBox.prepend(div);
     };
 
+    // Keep logs persistent during session
     JSON.parse(sessionStorage.getItem(STORAGE_KEY) || "[]").forEach(renderLogEntry);
 
-    // 3. The Processing Engine (The Network Sync)
+    // --- 3. PROCESSING ENGINE (NETWORK-BASED) ---
     async function sendCommand(internalId, pName) {
         const body = `h_ajax=1&pName=${pName}&pArgs%5B0%5D=${internalId}`;
         await fetch(window.location.href, {
@@ -108,14 +114,16 @@
         let page = 1;
         let keepScanning = true;
 
-        addLog("Sync started: Mapping pages...", "up");
+        addLog(`Initiating scan for ${upgrades.length} targets.`, "up");
 
         while (keepScanning && page <= 20) {
-            status.innerText = `Mapping Page ${page}...`;
+            status.innerText = `Searching Page ${page}...`;
             try {
                 const res = await fetch(`https://pro.immotop.lu/my-listings/index${page}.html`);
+                
+                // Break if page is non-existent or redirecting
                 if (!res.ok || res.redirected) {
-                    addLog(`End of list reached at page ${page - 1}.`);
+                    addLog(`Scan concluded at page ${page - 1}.`);
                     keepScanning = false;
                     break;
                 }
@@ -124,12 +132,18 @@
                 const doc = new DOMParser().parseFromString(html, 'text/html');
                 const listings = doc.querySelectorAll('.search-agency-item-container');
 
-                if (listings.length === 0) { keepScanning = false; break; }
+                if (listings.length === 0) { 
+                    addLog(`Empty page detected. Ending scan.`);
+                    keepScanning = false; 
+                    break; 
+                }
 
                 listings.forEach(row => {
                     const internalId = row.getAttribute('data-id');
                     const publicUrl = row.querySelector('a.domingo')?.href || "";
                     const isFirst = row.querySelector('button[data-role="featured"]')?.classList.contains('active');
+                    
+                    // Match against target IDs (Public or Internal)
                     const isTarget = upgrades.some(id => internalId.includes(id) || publicUrl.includes(id));
 
                     if (isTarget && !isFirst) toUpgrade.push(internalId);
@@ -139,35 +153,34 @@
             } catch (e) { keepScanning = false; }
         }
 
-        // STEP 1: DOWNGRADE FIRST
-        status.innerText = `Downgrading ${toDowngrade.length} listings...`;
+        // Action Sequence
+        status.innerText = `Executing Removals (${toDowngrade.length})...`;
         for (const id of toDowngrade) {
-            addLog(`Freeing slot: ${id}`, "down");
+            addLog(`Freeing First slot: ${id}`, "down");
             await sendCommand(id, 'chListingFeat');
             await new Promise(r => setTimeout(r, DELAY));
         }
 
-        // STEP 2: UPGRADE
-        status.innerText = `Upgrading ${toUpgrade.length} listings...`;
+        status.innerText = `Applying Upgrades (${toUpgrade.length})...`;
         for (const id of toUpgrade) {
-            addLog(`Applying FIRST: ${id}`, "up");
+            addLog(`Upgrading to First: ${id}`, "up");
             await sendCommand(id, 'chListingFeat');
             await sendCommand(id, 'vis_ad_refresh');
             await new Promise(r => setTimeout(r, DELAY));
         }
 
-        status.innerText = "All actions complete.";
-        addLog("✅ Global Sync Finished.", "up");
+        status.innerText = "Sync Sequence Complete.";
+        addLog("✅ All background tasks finished successfully.", "up");
         setTimeout(() => window.location.reload(), 2000);
     }
 
-    // 4. Controls
+    // --- 4. CONTROLS & DRAG-AND-DROP ---
     document.getElementById('btn-start').onclick = processSync;
 
     document.getElementById('btn-copy').onclick = () => {
         const logs = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || "[]")
             .map(l => `[${l.time}] ${l.msg}`).join('\n');
-        navigator.clipboard.writeText(logs).then(() => alert("Logs copied to clipboard!"));
+        navigator.clipboard.writeText(logs).then(() => alert("Logs copied to clipboard."));
     };
 
     document.getElementById('immo-close').onclick = () => {
@@ -176,7 +189,7 @@
         container.remove();
     };
 
-    // Movement logic (Restored from your initial code)
+    // Restoration of the original dragging logic
     let header = document.getElementById('immo-cmd-header');
     header.onmousedown = function(e) {
         let shiftX = e.clientX - container.getBoundingClientRect().left;
@@ -184,7 +197,7 @@
         document.onmousemove = function(e) {
             container.style.left = e.clientX - shiftX + 'px';
             container.style.top = e.clientY - shiftY + 'px';
-            container.style.right = 'auto'; // Break the fixed right positioning
+            container.style.right = 'auto'; // Break the initial fixed alignment
         };
         document.onmouseup = function() { document.onmousemove = null; };
     };
