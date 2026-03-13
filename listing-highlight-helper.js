@@ -9,7 +9,7 @@
 
     let targetIds = [];
     let downgradeId = null;
-    let hasScannedPagination = false; // Prevent infinite background fetches
+    let hasScannedPagination = false;
 
     const isImmotop = window.location.hostname.includes('immotop.lu');
     const isAthome = window.location.hostname.includes('athome.lu');
@@ -38,7 +38,7 @@
         if (parsedNewIds.length > 0) {
             targetIds = parsedNewIds;
             sessionStorage.setItem('immotop_target_ids', JSON.stringify(targetIds));
-            hasScannedPagination = false; // Reset scan state if new IDs are added
+            hasScannedPagination = false;
         } else {
             const stored = sessionStorage.getItem('immotop_target_ids');
             if (stored) targetIds = JSON.parse(stored);
@@ -48,7 +48,7 @@
         if (downgradeParam) {
             downgradeId = downgradeParam.split('=')[1];
             sessionStorage.setItem('immotop_downgrade_id', downgradeId);
-            hasScannedPagination = false; // Reset scan state
+            hasScannedPagination = false;
         } else if (parsedNewIds.length > 0) {
             sessionStorage.removeItem('immotop_downgrade_id');
             downgradeId = null;
@@ -181,42 +181,51 @@
         });
     }
 
-    // --- NEW: Background Scanner Logic ---
     async function scanPaginationPages() {
         if (!isImmotop || hasScannedPagination) return;
         if (targetIds.length === 0 && !downgradeId) return;
 
-        const paginatorLinks = Array.from(document.querySelectorAll('#paginator a[href]'));
-        if (paginatorLinks.length === 0) return;
+        hasScannedPagination = true;
 
-        hasScannedPagination = true; // Mark as scanned immediately to prevent re-triggering
+        const numberLinks = Array.from(document.querySelectorAll('#paginator nav ul li a[data-pg]'));
+        const visiblePages = numberLinks.map(a => parseInt(a.getAttribute('data-pg'), 10)).filter(n => !isNaN(n));
+        
+        const minVisible = visiblePages.length > 0 ? Math.min(...visiblePages) : 1;
+        const maxVisible = visiblePages.length > 0 ? Math.max(...visiblePages) : 1;
 
-        // Collect unique URLs, ignoring current page indicators
-        const urlsToScan = new Set();
-        const currentUrlBase = window.location.pathname.split('/').pop();
+        let basePath = window.location.pathname.replace(/index\d*\.html$/, '');
+        if (!basePath.endsWith('/')) basePath += '/';
 
-        paginatorLinks.forEach(link => {
-            const hrefStr = link.getAttribute('href');
-            if (hrefStr && hrefStr.includes('index') && 
-                !link.classList.contains('current') && 
-                !link.parentElement.classList.contains('is_current') &&
-                !hrefStr.includes(currentUrlBase)) {
-                urlsToScan.add(link.href);
-            }
-        });
+        let nextState = { firstAction: false, firstDone: false, downAction: false, downDone: false };
+        let prevState = { firstAction: false, firstDone: false, downAction: false, downDone: false };
 
-        for (const url of urlsToScan) {
+        const MAX_PAGES_TO_SCAN = 30;
+        let consecutiveEmptyPages = 0;
+
+        // Tracking mechanisms for early exit
+        let foundUpgrades = new Set();
+        let foundDown = false;
+
+        for (let p = 1; p <= MAX_PAGES_TO_SCAN; p++) {
             try {
+                const url = `${basePath}index${p}.html`;
                 const response = await fetch(url);
+                
+                if (!response.ok) break;
+
                 const html = await response.text();
                 const doc = new DOMParser().parseFromString(html, 'text/html');
-                
-                let pageNeedsFirstAction = false;
-                let pageNeedsFirstDone = false;
-                let pageNeedsDownAction = false;
-                let pageNeedsDownDone = false;
-
                 const containers = Array.from(doc.querySelectorAll('.search-agency-item-container'));
+
+                if (containers.length === 0) {
+                    consecutiveEmptyPages++;
+                    if (consecutiveEmptyPages >= 2) break; 
+                    continue;
+                } else {
+                    consecutiveEmptyPages = 0;
+                }
+
+                let pageState = { firstAction: false, firstDone: false, downAction: false, downDone: false };
                 
                 containers.forEach(container => {
                     let adId = null;
@@ -229,63 +238,101 @@
 
                     if (adId) {
                         if (targetIds.includes(adId)) {
-                            if (nativeBadge) pageNeedsFirstDone = true;
-                            else pageNeedsFirstAction = true;
+                            foundUpgrades.add(adId); // Track found upgrade
+                            if (nativeBadge) pageState.firstDone = true;
+                            else pageState.firstAction = true;
                         } else if (adId === downgradeId) {
-                            if (!nativeBadge) pageNeedsDownDone = true;
-                            else pageNeedsDownAction = true;
+                            foundDown = true; // Track found downgrade
+                            if (!nativeBadge) pageState.downDone = true;
+                            else pageState.downAction = true;
                         }
                     }
                 });
 
-                // Prioritize "Action Needed" over "Done" styles if a page has multiple targets
-                let colorToApply = null;
-                let isGlow = false;
-
-                if (pageNeedsFirstAction) {
-                    colorToApply = COLOR_FIRST;
-                    isGlow = true;
-                } else if (pageNeedsDownAction) {
-                    colorToApply = COLOR_DOWNGRADE;
-                    isGlow = true;
-                } else if (pageNeedsFirstDone) {
-                    colorToApply = COLOR_FIRST_DONE;
-                    isGlow = false;
-                } else if (pageNeedsDownDone) {
-                    colorToApply = COLOR_DOWNGRADE_DONE;
-                    isGlow = false;
+                if (p < minVisible) {
+                    if (pageState.firstAction) prevState.firstAction = true;
+                    if (pageState.firstDone) prevState.firstDone = true;
+                    if (pageState.downAction) prevState.downAction = true;
+                    if (pageState.downDone) prevState.downDone = true;
+                } else if (p > maxVisible) {
+                    if (pageState.firstAction) nextState.firstAction = true;
+                    if (pageState.firstDone) nextState.firstDone = true;
+                    if (pageState.downAction) nextState.downAction = true;
+                    if (pageState.downDone) nextState.downDone = true;
+                } else {
+                    const numberBtn = document.querySelector(`#paginator a[href$="index${p}.html"]:not(.prev-next)`);
+                    if (numberBtn && (pageState.firstAction || pageState.firstDone || pageState.downAction || pageState.downDone)) {
+                        applyPaginatorStyle(numberBtn.closest('li') || numberBtn, pageState);
+                    }
                 }
 
-                if (colorToApply) {
-                    // Find all links in the paginator pointing to this specific URL
-                    const matchingLinks = document.querySelectorAll(`#paginator a[href$="${new URL(url).pathname.split('/').pop()}"]`);
-                    
-                    matchingLinks.forEach(link => {
-                        // Apply styling to the <li> wrapper if it exists (for pg_wide), otherwise the <a> itself (for pg_small)
-                        const targetToStyle = link.closest('li') || link; 
-                        
-                        targetToStyle.style.cssText = `
-                            background-color: ${colorToApply} !important;
-                            border: 1px solid ${colorToApply} !important;
-                            border-radius: 4px;
-                            transition: all 0.3s ease;
-                            ${isGlow ? `box-shadow: 0 0 15px ${colorToApply} !important; z-index: 10; position: relative;` : ''}
-                        `;
-                        link.style.cssText = `color: #fff !important; font-weight: bold !important;`;
-                    });
+                // Check for early exit condition
+                const allUpgradesFound = targetIds.every(id => foundUpgrades.has(id));
+                const downgradeSatisfied = downgradeId ? foundDown : true;
+
+                if (allUpgradesFound && downgradeSatisfied) {
+                    break; // Stop fetching, we found everything!
                 }
 
             } catch (err) {
-                console.error('Immotop Helper: Error fetching page for pagination highlights', err);
+                console.error('Immotop Helper: Error during sequential scan', err);
+                break;
+            }
+        }
+
+        const prevArrowBtn = document.querySelector('.arr.pg-btn-left') || document.querySelector('.prev-next:first-of-type');
+        const nextArrowBtn = document.querySelector('.arr.pg-btn-right') || document.querySelector('.prev-next:last-of-type');
+        
+        if (prevArrowBtn && (prevState.firstAction || prevState.firstDone || prevState.downAction || prevState.downDone)) {
+            applyPaginatorStyle(prevArrowBtn, prevState);
+        }
+        if (nextArrowBtn && (nextState.firstAction || nextState.firstDone || nextState.downAction || nextState.downDone)) {
+            applyPaginatorStyle(nextArrowBtn, nextState);
+        }
+    }
+
+    function applyPaginatorStyle(targetElement, state) {
+        if (!targetElement) return;
+
+        let colorLeft = state.firstAction ? COLOR_FIRST : (state.firstDone ? COLOR_FIRST_DONE : null);
+        let colorRight = state.downAction ? COLOR_DOWNGRADE : (state.downDone ? COLOR_DOWNGRADE_DONE : null);
+        let isGlow = (state.firstAction || state.downAction);
+
+        let bgStyle = "";
+        let shadowStyle = "";
+
+        if (colorLeft && colorRight) {
+            bgStyle = `background: linear-gradient(135deg, ${colorLeft} 0%, ${colorRight} 100%) !important; border: none !important;`;
+            shadowStyle = isGlow ? `box-shadow: -4px 0 12px ${colorLeft}, 4px 0 12px ${colorRight} !important; z-index: 10; position: relative;` : '';
+        } else if (colorLeft) {
+            bgStyle = `background-color: ${colorLeft} !important; border: 1px solid ${colorLeft} !important;`;
+            shadowStyle = isGlow ? `box-shadow: 0 0 15px ${colorLeft} !important; z-index: 10; position: relative;` : '';
+        } else if (colorRight) {
+            bgStyle = `background-color: ${colorRight} !important; border: 1px solid ${colorRight} !important;`;
+            shadowStyle = isGlow ? `box-shadow: 0 0 15px ${colorRight} !important; z-index: 10; position: relative;` : '';
+        }
+
+        if (bgStyle) {
+            targetElement.style.cssText += `
+                ${bgStyle}
+                ${shadowStyle}
+                border-radius: 4px;
+                transition: all 0.3s ease;
+            `;
+            
+            const link = targetElement.tagName.toLowerCase() === 'a' ? targetElement : targetElement.querySelector('a');
+            if (link) {
+                link.style.cssText += `color: #fff !important; font-weight: bold !important; background: transparent !important;`;
+                const icon = link.querySelector('i');
+                if (icon) icon.style.color = '#fff !important;';
             }
         }
     }
-    // --- END NEW LOGIC ---
 
     function initApp() {
         syncState();
         enforceHighlights();
-        scanPaginationPages(); // Trigger background scan on load
+        scanPaginationPages(); 
 
         let mutTimeout;
         const observer = new MutationObserver(() => {
@@ -306,7 +353,6 @@
                 lastUrl = location.href;
                 syncState();
                 enforceHighlights();
-                // If URL changes dynamically via pushState, re-scan pagination just in case
                 hasScannedPagination = false;
                 scanPaginationPages(); 
             }
