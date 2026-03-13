@@ -32,7 +32,7 @@
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
             z-index: 100000; background: #1a1a1a; border-radius: 12px;
             border: 1px solid #333; box-shadow: 0 20px 50px rgba(0,0,0,0.9);
-            font-family: system-ui, -apple-system, sans-serif; width: 420px;
+            font-family: system-ui, -apple-system, sans-serif; width: 550px;
             display: flex; flex-direction: column; overflow: hidden;
         }
         #immo-cmd-header {
