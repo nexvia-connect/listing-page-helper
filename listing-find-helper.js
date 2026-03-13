@@ -53,9 +53,9 @@
             </div>
             <div style="padding: 20px;">
                 ${imageHtml}
-                <div style="display: flex; gap: 8px; align-items: center; justify-content: center; box-sizing: border-box;">
-                    <input type="text" id="immo-popup-input" value="${url}" readonly style="flex-grow: 1; padding: 10px 12px; border: 1px solid #333; background: #000; color: #e0e0e0; border-radius: 6px; font-size: 13px; outline: none; box-sizing: border-box;" />
-                    <button id="immo-popup-copy" style="background: #333; border: 1px solid #555; color: white; padding: 10px; cursor: pointer; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; box-sizing: border-box;" title="Copy to clipboard">
+                <div style="display: flex; gap: 8px; align-items: stretch; justify-content: center; box-sizing: border-box; height: 38px;">
+                    <input type="text" id="immo-popup-input" value="${url}" readonly style="flex-grow: 1; height: 100% !important; margin: 0 !important; padding: 0 12px !important; border: 1px solid #333 !important; background: #000 !important; color: #e0e0e0 !important; -webkit-text-fill-color: #e0e0e0 !important; opacity: 1 !important; border-radius: 6px; font-size: 13px; line-height: normal !important; outline: none !important; box-sizing: border-box !important; box-shadow: none !important;" />
+                    <button id="immo-popup-copy" style="flex-shrink: 0; width: 38px !important; height: 100% !important; margin: 0 !important; padding: 0 !important; background: #333 !important; border: 1px solid #555 !important; color: white !important; cursor: pointer; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; box-sizing: border-box !important;" title="Copy to clipboard">
                         <svg id="immo-copy-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                     </button>
                 </div>
@@ -76,12 +76,13 @@
         const copyBtn = document.getElementById('immo-popup-copy');
         copyBtn.onclick = () => {
             navigator.clipboard.writeText(url).then(() => {
-                copyBtn.style.background = '#2e7d32';
-                copyBtn.style.borderColor = '#2e7d32';
+                // Using setProperty with 'important' to override the !important tags in the HTML string
+                copyBtn.style.setProperty('background', '#2e7d32', 'important');
+                copyBtn.style.setProperty('border-color', '#2e7d32', 'important');
                 copyBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
                 setTimeout(() => {
-                    copyBtn.style.background = '#333';
-                    copyBtn.style.borderColor = '#555';
+                    copyBtn.style.setProperty('background', '#333', 'important');
+                    copyBtn.style.setProperty('border-color', '#555', 'important');
                     copyBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
                 }, 2000);
             });
