@@ -6,20 +6,30 @@
     window.immoCmdLoaded = true;
 
     // --- 1. PERSISTENT STATE & PARSING ---
-    const STORAGE_KEY = 'immo_sync_logs';
+    const LOG_STORAGE_KEY = 'immo_sync_logs';
+    const ID_STORAGE_KEY = 'immo_cmd_up_session'; // New key for session storage
     
+    // Wipe out the old local storage to cure the "zombie UI" permanently
+    localStorage.removeItem('immo_cmd_up');
+
     function getIdsFromUrl() {
         const params = new URLSearchParams(window.location.search);
         const upgradeString = params.get('upgrade') || "";
         return upgradeString.split(',').filter(id => id.trim().length >= 7).map(id => id.trim());
     }
 
-    let upgrades = JSON.parse(localStorage.getItem('immo_cmd_up') || "[]");
+    // Load from Session Storage (dies when tab closes)
+    let upgrades = JSON.parse(sessionStorage.getItem(ID_STORAGE_KEY) || "[]");
     const urlIds = getIdsFromUrl();
     
     if (urlIds.length > 0) {
         upgrades = urlIds;
-        localStorage.setItem('immo_cmd_up', JSON.stringify(upgrades));
+        sessionStorage.setItem(ID_STORAGE_KEY, JSON.stringify(upgrades));
+    }
+
+    // KILLSWITCH: If no IDs in the URL and no IDs in the current tab session, abort.
+    if (upgrades.length === 0) {
+        return;
     }
 
     const DELAY = 1000;
@@ -76,7 +86,7 @@
 
     const logBox = document.getElementById('immo-log');
     const idBox = document.getElementById('immo-id-container');
-    const badgeMap = {}; // To track DOM elements by ID
+    const badgeMap = {};
 
     upgrades.forEach(id => {
         const span = document.createElement('span');
@@ -89,9 +99,9 @@
 
     const addLog = (msg, type = '') => {
         const entry = { time: new Date().toLocaleTimeString(), msg, type };
-        const logs = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || "[]");
+        const logs = JSON.parse(sessionStorage.getItem(LOG_STORAGE_KEY) || "[]");
         logs.push(entry);
-        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(logs));
+        sessionStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(logs));
         renderLogEntry(entry);
     };
 
@@ -102,7 +112,7 @@
         logBox.prepend(div);
     };
 
-    JSON.parse(sessionStorage.getItem(STORAGE_KEY) || "[]").forEach(renderLogEntry);
+    JSON.parse(sessionStorage.getItem(LOG_STORAGE_KEY) || "[]").forEach(renderLogEntry);
 
     // --- 3. ENGINE ---
     async function sendCommand(internalId, pName) {
@@ -120,7 +130,7 @@
         btn.disabled = true;
         btn.innerText = "Processing...";
 
-        let toUpgrade = []; // Stores {internalId, publicId}
+        let toUpgrade = []; 
         let toDowngrade = [];
         let page = 1;
         let keepScanning = true;
@@ -148,13 +158,11 @@
                     const publicUrl = row.querySelector('a.domingo')?.href || "";
                     const isFirst = row.querySelector('button[data-role="featured"]')?.classList.contains('active');
                     
-                    // Check if current row matches any of our target public IDs
                     const matchedPublicId = upgrades.find(id => internalId.includes(id) || publicUrl.includes(id));
 
                     if (matchedPublicId) {
                         if (!isFirst) toUpgrade.push({ internalId, publicId: matchedPublicId });
                         else {
-                            // If it's already first, mark it as active immediately
                             if (badgeMap[matchedPublicId]) badgeMap[matchedPublicId].classList.add('active');
                         }
                     } else if (isFirst) {
@@ -165,7 +173,6 @@
             } catch (e) { keepScanning = false; }
         }
 
-        // Action 1: Clear non-targets
         status.innerText = `Clearing slots (${toDowngrade.length})...`;
         for (const id of toDowngrade) {
             addLog(`Downgrading non-target: ${id}`, "down");
@@ -173,14 +180,12 @@
             await new Promise(r => setTimeout(r, DELAY));
         }
 
-        // Action 2: Upgrade targets and update badges
         status.innerText = `Applying Upgrades (${toUpgrade.length})...`;
         for (const item of toUpgrade) {
             addLog(`Upgrading target: ${item.publicId}`, "up");
             await sendCommand(item.internalId, 'chListingFeat');
             await sendCommand(item.internalId, 'vis_ad_refresh');
             
-            // Visual Update: Turn the badge Dark Green
             if (badgeMap[item.publicId]) {
                 badgeMap[item.publicId].classList.add('active');
             }
@@ -197,14 +202,15 @@
     document.getElementById('btn-start').onclick = processSync;
 
     document.getElementById('btn-copy').onclick = () => {
-        const logs = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || "[]")
+        const logs = JSON.parse(sessionStorage.getItem(LOG_STORAGE_KEY) || "[]")
             .map(l => `[${l.time}] ${l.msg}`).join('\n');
         navigator.clipboard.writeText(logs).then(() => alert("Logs copied!"));
     };
 
     document.getElementById('immo-close').onclick = () => {
-        localStorage.clear();
-        sessionStorage.removeItem(STORAGE_KEY);
+        // Clear session storage on manual close so it doesn't pop back up on refresh
+        sessionStorage.removeItem(ID_STORAGE_KEY);
+        sessionStorage.removeItem(LOG_STORAGE_KEY);
         container.remove();
     };
 
