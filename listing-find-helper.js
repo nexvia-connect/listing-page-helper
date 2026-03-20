@@ -55,9 +55,12 @@
                 ${imageHtml}
                 <div style="display: flex; gap: 8px; align-items: stretch; justify-content: center; box-sizing: border-box; height: 38px;">
                     <input type="text" id="immo-popup-input" value="${url}" readonly style="flex-grow: 1; height: 100% !important; margin: 0 !important; padding: 0 12px !important; border: 1px solid #333 !important; background: #000 !important; color: #e0e0e0 !important; -webkit-text-fill-color: #e0e0e0 !important; opacity: 1 !important; border-radius: 6px; font-size: 13px; line-height: normal !important; outline: none !important; box-sizing: border-box !important; box-shadow: none !important;" />
-                    <button id="immo-popup-copy" style="flex-shrink: 0; width: 38px !important; height: 100% !important; margin: 0 !important; padding: 0 !important; background: #333 !important; border: 1px solid #555 !important; color: white !important; cursor: pointer; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; box-sizing: border-box !important;" title="Copy to clipboard">
-                        <svg id="immo-copy-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                    </button>
+                    <div style="position: relative; display: flex; flex-shrink: 0; width: 38px;">
+                        <div id="immo-copied-tooltip" style="position: absolute; bottom: 120%; left: 50%; transform: translateX(-50%); background: #2e7d32; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; opacity: 0; transition: opacity 0.2s; pointer-events: none; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.3); z-index: 10;">Copied!</div>
+                        <button id="immo-popup-copy" style="width: 100% !important; height: 100% !important; margin: 0 !important; padding: 0 !important; background: #333 !important; border: 1px solid #555 !important; color: white !important; cursor: pointer; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; box-sizing: border-box !important;" title="Copy to clipboard">
+                            <svg id="immo-copy-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                    </div>
                 </div>
             </div>
         `;
@@ -74,19 +77,36 @@
         };
 
         const copyBtn = document.getElementById('immo-popup-copy');
-        copyBtn.onclick = () => {
+        const tooltip = document.getElementById('immo-copied-tooltip');
+
+        const triggerSuccessVisuals = () => {
+            // Using setProperty with 'important' to override the !important tags
+            copyBtn.style.setProperty('background', '#2e7d32', 'important');
+            copyBtn.style.setProperty('border-color', '#2e7d32', 'important');
+            copyBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+            tooltip.style.opacity = '1';
+
+            setTimeout(() => {
+                copyBtn.style.setProperty('background', '#333', 'important');
+                copyBtn.style.setProperty('border-color', '#555', 'important');
+                copyBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+                tooltip.style.opacity = '0';
+            }, 2000);
+        };
+
+        const performCopy = () => {
             navigator.clipboard.writeText(url).then(() => {
-                // Using setProperty with 'important' to override the !important tags in the HTML string
-                copyBtn.style.setProperty('background', '#2e7d32', 'important');
-                copyBtn.style.setProperty('border-color', '#2e7d32', 'important');
-                copyBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-                setTimeout(() => {
-                    copyBtn.style.setProperty('background', '#333', 'important');
-                    copyBtn.style.setProperty('border-color', '#555', 'important');
-                    copyBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
-                }, 2000);
+                triggerSuccessVisuals();
+            }).catch(err => {
+                console.warn('Auto-copy prevented by browser security rules. Awaiting manual user click.', err);
             });
         };
+
+        // Trigger manually on click
+        copyBtn.onclick = performCopy;
+        
+        // Auto-trigger when popup spawns
+        performCopy();
 
         // Dragging logic
         const header = document.getElementById('immo-popup-header');
@@ -160,7 +180,6 @@
                 });
                 if (refVal === findId && idVal) {
                     isMatch = true;
-                    // The magic fix: adding .html
                     copyUrl = `https://www.athome.lu/id-${idVal}.html`;
                     
                     const imgEl = container.querySelector('img.object-cover');
