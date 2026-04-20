@@ -88,7 +88,7 @@
     container.id = 'immo-cmd-center';
     container.innerHTML = `
         <div id="immo-cmd-header">
-            <span>Action Center</span>
+            <span>Formats</span>
             <span id="immo-close" style="cursor:pointer; color: #888; transition: color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#888'">✕</span>
         </div>
         <div id="immo-id-container"></div>
