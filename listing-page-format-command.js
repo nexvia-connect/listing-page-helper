@@ -88,7 +88,7 @@
     container.id = 'immo-cmd-center';
     container.innerHTML = `
         <div id="immo-cmd-header">
-            <span>Formats</span>
+            <span>Action Center</span>
             <span id="immo-close" style="cursor:pointer; color: #888; transition: color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#888'">✕</span>
         </div>
         <div id="immo-id-container"></div>
@@ -139,7 +139,7 @@
 
         addLog("Sync started: Mapping listings to internal IDs...", "up");
 
-        while (keepScanning && page <= 20) {
+        while (keepScanning && page <= 50) {
             btn.innerText = `MAPPING PAGE ${page}...`;
             try {
                 const res = await fetch(`https://pro.immotop.lu/my-listings/index${page}.html`);
