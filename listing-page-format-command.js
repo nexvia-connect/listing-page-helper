@@ -37,7 +37,7 @@
         #immo-cmd-center {
             position: fixed; top: 100px; right: 20px; z-index: 100000;
             background: #1e1e1e; border: 1px solid #333; border-radius: 12px;
-            width: 420px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            width: 480px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             box-shadow: 0 10px 40px rgba(0,0,0,0.4);
             color: #ececec; overflow: hidden;
             display: flex; flex-direction: column;
@@ -111,7 +111,6 @@
         badgeMap[id] = span;
     });
 
-    // Logging logic remains, but writes only to session storage (UI log removed)
     const addLog = (msg, type = '') => {
         const entry = { time: new Date().toLocaleTimeString(), msg, type };
         const logs = JSON.parse(sessionStorage.getItem(LOG_STORAGE_KEY) || "[]");
