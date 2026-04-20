@@ -7,9 +7,8 @@
 
     // --- 1. PERSISTENT STATE & PARSING ---
     const LOG_STORAGE_KEY = 'immo_sync_logs';
-    const ID_STORAGE_KEY = 'immo_cmd_up_session'; // New key for session storage
+    const ID_STORAGE_KEY = 'immo_cmd_up_session';
     
-    // Wipe out the old local storage to cure the "zombie UI" permanently
     localStorage.removeItem('immo_cmd_up');
 
     function getIdsFromUrl() {
@@ -18,7 +17,6 @@
         return upgradeString.split(',').filter(id => id.trim().length >= 7).map(id => id.trim());
     }
 
-    // Load from Session Storage (dies when tab closes)
     let upgrades = JSON.parse(sessionStorage.getItem(ID_STORAGE_KEY) || "[]");
     const urlIds = getIdsFromUrl();
     
@@ -27,64 +25,80 @@
         sessionStorage.setItem(ID_STORAGE_KEY, JSON.stringify(upgrades));
     }
 
-    // KILLSWITCH: If no IDs in the URL and no IDs in the current tab session, abort.
     if (upgrades.length === 0) {
         return;
     }
 
     const DELAY = 1000;
 
-    // --- 2. UI (550px Wide, Professional Dark) ---
+    // --- 2. UI (Modernized, Sleek Dark Mode) ---
     const style = document.createElement('style');
     style.textContent = `
         #immo-cmd-center {
             position: fixed; top: 100px; right: 20px; z-index: 100000;
-            background: #121212; border: 1px solid #333; border-radius: 8px;
-            width: 550px; font-family: system-ui, sans-serif; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-            color: #eee; overflow: hidden;
+            background: #1e1e1e; border: 1px solid #333; border-radius: 12px;
+            width: 420px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+            color: #ececec; overflow: hidden;
+            display: flex; flex-direction: column;
         }
-        #immo-cmd-header { padding: 12px 16px; background: #1a1a1a; border-bottom: 1px solid #333; cursor: grab; display: flex; justify-content: space-between; align-items: center; }
-        #immo-id-container { padding: 15px; display: flex; flex-wrap: wrap; gap: 8px; background: #000; border-bottom: 1px solid #222; }
+        #immo-cmd-header { 
+            padding: 14px 20px; background: #252525; border-bottom: 1px solid #333; 
+            cursor: grab; display: flex; justify-content: space-between; align-items: center; 
+            font-size: 14px; font-weight: 600; color: #fff; letter-spacing: 0.5px;
+        }
+        #immo-id-container { 
+            padding: 20px; display: flex; flex-wrap: wrap; gap: 8px; background: #1e1e1e; 
+        }
         
-        /* Light Green (Queued) */
+        /* Modern Tag Styling */
         .id-badge { 
-            background: #4caf50; color: white; padding: 4px 10px; border-radius: 4px; 
-            font-size: 12px; font-weight: bold; border: 1px solid #81c784; 
-            opacity: 0.7; transition: all 0.3s ease; 
+            background: #2c2c2c; color: #a3a3a3; padding: 6px 12px; border-radius: 20px; 
+            font-size: 12px; font-weight: 500; border: 1px solid #404040; 
+            transition: all 0.3s ease; 
         }
-        /* Dark Green (Applied) */
         .id-badge.active { 
-            background: #1b5e20; border-color: #2e7d32; opacity: 1; 
-            box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
+            background: rgba(16, 163, 127, 0.15); color: #10a37f; border-color: rgba(16, 163, 127, 0.4); 
         }
 
-        #immo-status { padding: 20px; text-align: center; font-size: 14px; color: #62c462; font-weight: bold; border-bottom: 1px solid #222; }
-        #immo-log { height: 200px; overflow-y: auto; background: #0a0a0a; padding: 12px; font-size: 11px; color: #aaa; display: flex; flex-direction: column-reverse; border-bottom: 1px solid #222; }
-        .immo-btn-row { display: flex; }
-        .immo-btn { flex: 1; padding: 15px; border: none; font-weight: bold; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; }
-        #btn-start { background: #2e7d32; color: white; }
-        #btn-copy { background: #333; color: white; border-left: 1px solid #444; }
-        .log-entry { margin-bottom: 4px; border-left: 2px solid #444; padding-left: 8px; }
-        .log-up { color: #62c462; border-color: #62c462; }
-        .log-down { color: #ff6b6b; border-color: #ff6b6b; }
+        .immo-btn-row { 
+            padding: 0 20px 20px 20px; display: flex; gap: 12px; align-items: center;
+        }
+        .immo-btn { 
+            padding: 10px 18px; border-radius: 6px; font-size: 12px; font-weight: 600; 
+            cursor: pointer; transition: all 0.2s ease; border: none; letter-spacing: 0.5px;
+        }
+        
+        /* Modern Green Button */
+        #btn-start { 
+            background: #10a37f; color: white; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        #btn-start:hover:not(:disabled) { background: #0e906f; }
+        #btn-start:disabled { background: #2c544a; color: #888; cursor: not-allowed; box-shadow: none; }
+        
+        /* Low-Contrast Copy Button */
+        #btn-copy { 
+            background: transparent; color: #a3a3a3; border: 1px solid #404040; 
+        }
+        #btn-copy:hover { background: #2c2c2c; color: #fff; border-color: #555; }
     `;
     document.head.appendChild(style);
 
     const container = document.createElement('div');
     container.id = 'immo-cmd-center';
     container.innerHTML = `
-        <div id="immo-cmd-header"><strong>Action Center</strong><span id="immo-close" style="cursor:pointer">✕</span></div>
+        <div id="immo-cmd-header">
+            <span>Action Center</span>
+            <span id="immo-close" style="cursor:pointer; color: #888; transition: color 0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#888'">✕</span>
+        </div>
         <div id="immo-id-container"></div>
-        <div id="immo-status">Ready to process ${upgrades.length} target IDs.</div>
-        <div id="immo-log"></div>
         <div class="immo-btn-row">
-            <button id="btn-start" class="immo-btn">Apply Formats</button>
-            <button id="btn-copy" class="immo-btn">Copy Logs</button>
+            <button id="btn-start" class="immo-btn">APPLY ${upgrades.length} FORMATS</button>
+            <button id="btn-copy" class="immo-btn">COPY LOGS</button>
         </div>
     `;
     document.body.appendChild(container);
 
-    const logBox = document.getElementById('immo-log');
     const idBox = document.getElementById('immo-id-container');
     const badgeMap = {};
 
@@ -97,22 +111,13 @@
         badgeMap[id] = span;
     });
 
+    // Logging logic remains, but writes only to session storage (UI log removed)
     const addLog = (msg, type = '') => {
         const entry = { time: new Date().toLocaleTimeString(), msg, type };
         const logs = JSON.parse(sessionStorage.getItem(LOG_STORAGE_KEY) || "[]");
         logs.push(entry);
         sessionStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(logs));
-        renderLogEntry(entry);
     };
-
-    const renderLogEntry = (entry) => {
-        const div = document.createElement('div');
-        div.className = `log-entry ${entry.type ? 'log-' + entry.type : ''}`;
-        div.innerText = `[${entry.time}] ${entry.msg}`;
-        logBox.prepend(div);
-    };
-
-    JSON.parse(sessionStorage.getItem(LOG_STORAGE_KEY) || "[]").forEach(renderLogEntry);
 
     // --- 3. ENGINE ---
     async function sendCommand(internalId, pName) {
@@ -125,10 +130,8 @@
     }
 
     async function processSync() {
-        const status = document.getElementById('immo-status');
         const btn = document.getElementById('btn-start');
         btn.disabled = true;
-        btn.innerText = "Processing...";
 
         let toUpgrade = []; 
         let toDowngrade = [];
@@ -138,7 +141,7 @@
         addLog("Sync started: Mapping listings to internal IDs...", "up");
 
         while (keepScanning && page <= 20) {
-            status.innerText = `Mapping Page ${page}...`;
+            btn.innerText = `MAPPING PAGE ${page}...`;
             try {
                 const res = await fetch(`https://pro.immotop.lu/my-listings/index${page}.html`);
                 if (!res.ok || res.redirected) {
@@ -173,14 +176,14 @@
             } catch (e) { keepScanning = false; }
         }
 
-        status.innerText = `Clearing slots (${toDowngrade.length})...`;
+        btn.innerText = `CLEARING SLOTS (${toDowngrade.length})...`;
         for (const id of toDowngrade) {
             addLog(`Downgrading non-target: ${id}`, "down");
             await sendCommand(id, 'chListingFeat');
             await new Promise(r => setTimeout(r, DELAY));
         }
 
-        status.innerText = `Applying Upgrades (${toUpgrade.length})...`;
+        btn.innerText = `APPLYING UPGRADES (${toUpgrade.length})...`;
         for (const item of toUpgrade) {
             addLog(`Upgrading target: ${item.publicId}`, "up");
             await sendCommand(item.internalId, 'chListingFeat');
@@ -193,7 +196,7 @@
             await new Promise(r => setTimeout(r, DELAY));
         }
 
-        status.innerText = "Sync Sequence Complete.";
+        btn.innerText = "COMPLETE ✓";
         addLog("✅ All background tasks finished.", "up");
         setTimeout(() => window.location.reload(), 2000);
     }
@@ -204,11 +207,28 @@
     document.getElementById('btn-copy').onclick = () => {
         const logs = JSON.parse(sessionStorage.getItem(LOG_STORAGE_KEY) || "[]")
             .map(l => `[${l.time}] ${l.msg}`).join('\n');
-        navigator.clipboard.writeText(logs).then(() => alert("Logs copied!"));
+        
+        if (logs.trim().length === 0) {
+            alert("Logs are currently empty.");
+            return;
+        }
+
+        navigator.clipboard.writeText(logs).then(() => {
+            const copyBtn = document.getElementById('btn-copy');
+            const originalText = copyBtn.innerText;
+            copyBtn.innerText = "COPIED!";
+            copyBtn.style.color = "#10a37f";
+            copyBtn.style.borderColor = "#10a37f";
+            
+            setTimeout(() => {
+                copyBtn.innerText = originalText;
+                copyBtn.style.color = "";
+                copyBtn.style.borderColor = "";
+            }, 2000);
+        });
     };
 
     document.getElementById('immo-close').onclick = () => {
-        // Clear session storage on manual close so it doesn't pop back up on refresh
         sessionStorage.removeItem(ID_STORAGE_KEY);
         sessionStorage.removeItem(LOG_STORAGE_KEY);
         container.remove();
